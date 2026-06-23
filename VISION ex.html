@@ -1815,21 +1815,25 @@ function hitTest(cx,cy) {
   if(!loaded||cx<RS||cy<RS) return null;
   const oTy=i2c(0,L.oT).y,oBy=i2c(0,L.oB).y;
   const oLx=i2c(L.oL,0).x,oRx=i2c(L.oR,0).x;
-  const vLines=[['oL',L.oL],['oR',L.oR],['iL',L.iL],['iR',L.iR]];
+  // Inner lines first so they win when overlapping outer on mobile
+  const vLines=[['iL',L.iL],['iR',L.iR],['oL',L.oL],['oR',L.oR]];
+  let best=null, bestD=HIT;
   for(const[id,ix] of vLines){
     const px2=i2c(ix,0).x;
     const yMin=(id==='iL'||id==='iR')?oTy-12:-9999;
     const yMax=(id==='iL'||id==='iR')?oBy+12:9999;
-    if(Math.abs(cx-px2)<HIT&&cy>=yMin&&cy<=yMax) return{id,isVert:true};
+    const d=Math.abs(cx-px2);
+    if(d<bestD&&cy>=yMin&&cy<=yMax){best={id,isVert:true};bestD=d;}
   }
-  const hLines=[['oT',L.oT],['oB',L.oB],['iT',L.iT],['iB',L.iB]];
+  const hLines=[['iT',L.iT],['iB',L.iB],['oT',L.oT],['oB',L.oB]];
   for(const[id,iy] of hLines){
     const py2=i2c(0,iy).y;
     const xMin=(id==='iT'||id==='iB')?oLx-12:-9999;
     const xMax=(id==='iT'||id==='iB')?oRx+12:9999;
-    if(Math.abs(cy-py2)<HIT&&cx>=xMin&&cx<=xMax) return{id,isVert:false};
+    const d=Math.abs(cy-py2);
+    if(d<bestD&&cx>=xMin&&cx<=xMax){best={id,isVert:false};bestD=d;}
   }
-  return null;
+  return best;
 }
 
 // ════════════════════════════════════════════

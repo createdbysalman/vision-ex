@@ -1,4 +1,4 @@
-const CACHE = 'vex-v2';
+const CACHE = 'vex-v3';
 const ASSETS = [
   './VISION%20ex.html',
   './manifest.json'
