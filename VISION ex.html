@@ -2403,7 +2403,7 @@ function drawCanvas(){
   function line(x1,y1,x2,y2,col,hot,dash){
     ctx.save();ctx.strokeStyle=col;ctx.lineWidth=hot?LW*2.2:LW;
     ctx.shadowColor=col;ctx.shadowBlur=hot?(MOB?12:7):(MOB?5:2.5);
-    if(dash) ctx.setLineDash(MOB?[10,7]:[7,5]);
+    if(dash&&!hot) ctx.setLineDash(MOB?[10,7]:[7,5]);
     ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();
   }
   function knob(x,y,col,hot){
