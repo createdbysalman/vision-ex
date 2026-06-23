@@ -728,19 +728,28 @@ body{
   .tb{
     top:6px;bottom:auto;left:6px;right:6px;
     transform:none;width:auto;
-    overflow-x:auto;-webkit-overflow-scrolling:touch;
+    overflow-x:scroll;-webkit-overflow-scrolling:touch;
     scrollbar-width:none;
-    border-radius:16px;height:36px;padding:0 4px;
+    border-radius:16px;height:36px;padding:0 8px;
     justify-content:flex-start;
+    flex-wrap:nowrap;
     z-index:20;
     box-shadow:0 2px 12px rgba(0,0,0,.12);
   }
   .tb::-webkit-scrollbar{display:none;}
-  .tb-btn{padding:3px 8px;font-size:8px;border-radius:6px;min-height:28px;}
-  .tb-sep{height:18px;margin:0 2px;}
-  .zoom-lbl{font-size:8px;min-width:28px;}
+  .tb-group{flex-shrink:0;padding:0 4px;}
+  .tb-btn{padding:3px 8px;font-size:8px;border-radius:6px;min-height:28px;flex-shrink:0;white-space:nowrap;}
+  .tb-sep{height:18px;margin:0 2px;flex-shrink:0;}
+  .zoom-lbl{font-size:8px;min-width:28px;flex-shrink:0;}
   .str-ctrl{display:none !important;}
   .def-ctrl{display:none !important;}
+  /* Scroll fade hints */
+  .tb::before,.tb::after{
+    content:'';position:sticky;top:0;bottom:0;width:12px;flex-shrink:0;
+    pointer-events:none;z-index:1;
+  }
+  .tb::before{left:0;background:linear-gradient(to right,var(--white),transparent);}
+  .tb::after{right:0;background:linear-gradient(to left,var(--white),transparent);}
 
   /* ── SIDEBAR CONTENT — mobile density ── */
   .sec-inner{padding:9px 12px;}
@@ -798,7 +807,7 @@ body{
   <div class="sec"><div class="sec-inner">
     <div class="sec-lbl">Card Image</div>
     <div class="upload-zone" id="uploadZone">
-      <input type="file" id="fileInput" accept="image/*" capture="environment">
+      <input type="file" id="fileInput" accept="image/*">
       <svg class="upload-ico" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
         <rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 21V9"/>
       </svg>
