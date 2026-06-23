@@ -680,76 +680,86 @@ body{
    ════════════════════════════════════════════ */
 @media(max-width:430px){
 
-  /* Layout */
+  /* ── LAYOUT ── */
   .app{flex-direction:column;}
-  .cv{flex:1;height:calc(100vh - 44px);}
+  .cv{flex:1;height:calc(100vh - 40px);}
   .cv-wrap{touch-action:none;}
 
-  /* Header tweaks */
-  .hdr-sub,.hdr-rule{display:none;}
-  .brand-name{font-size:15px;}
+  /* ── HEADER — minimal on mobile ── */
+  .hdr{height:40px;}
+  .hdr-sub,.hdr-rule,.hdr-center,.hdr-pill{display:none !important;}
+  .hdr-inner{padding:0 10px;}
+  .hdr-left img{height:22px !important;}
+  .brand-name{display:none;}
+  .hdr-right{gap:6px;}
+  .theme-btn{padding:2px 8px;font-size:8px;}
+  .hdr-tag{font-size:7.5px;padding:2px 5px;}
 
-  /* Sidebar → bottom sheet */
+  /* ── SIDEBAR → BOTTOM SHEET ── */
   .sb{
     position:fixed;bottom:0;left:0;right:0;
-    width:100%;height:60vh;z-index:30;
-    transform:translateY(calc(100% - 48px));
+    width:100%;height:65vh;z-index:30;
+    transform:translateY(calc(100% - 44px));
     transition:transform .35s cubic-bezier(.4,0,.2,1);
-    border-top:1px solid var(--border);
+    border-top:2px solid var(--yellow);
     border-right:none;
     border-radius:16px 16px 0 0;
+    box-shadow:0 -4px 24px rgba(0,0,0,.15);
   }
   .sb.open{transform:translateY(0);}
-  .sb-body{overflow-y:auto;}
+  .sb-body{overflow-y:auto;-webkit-overflow-scrolling:touch;}
 
-  /* Bottom sheet handle bar */
+  /* Handle bar — yellow accent */
   .sb::before{
-    content:'';display:block;width:36px;height:4px;
-    background:var(--border);border-radius:2px;margin:8px auto;
+    content:'';display:block;width:40px;height:4px;
+    background:var(--yellow);border-radius:2px;margin:10px auto 6px;
     pointer-events:none;
   }
   .sb-handle{display:block !important;}
 
-  /* Backdrop when sheet is open */
+  /* Backdrop */
   .sb-backdrop{
     display:none;position:fixed;inset:0;
-    background:rgba(0,0,0,.3);z-index:29;
+    background:rgba(0,0,0,.4);z-index:29;
   }
   .sb-backdrop.show{display:block;}
 
-  /* Floating toolbar — bottom-anchored, scrollable */
+  /* ── FLOATING TOOLBAR — top of canvas, compact scrollable ── */
   .tb{
-    top:auto;bottom:60px;left:8px;right:8px;
+    top:6px;bottom:auto;left:6px;right:6px;
     transform:none;width:auto;
     overflow-x:auto;-webkit-overflow-scrolling:touch;
-    border-radius:20px;height:38px;padding:0 4px;
+    scrollbar-width:none;
+    border-radius:16px;height:36px;padding:0 4px;
     justify-content:flex-start;
+    z-index:20;
+    box-shadow:0 2px 12px rgba(0,0,0,.12);
   }
-  .tb-btn{padding:3px 7px;font-size:8.5px;}
-  .zoom-lbl{font-size:8.5px;min-width:30px;}
+  .tb::-webkit-scrollbar{display:none;}
+  .tb-btn{padding:3px 8px;font-size:8px;border-radius:6px;min-height:28px;}
+  .tb-sep{height:18px;margin:0 2px;}
+  .zoom-lbl{font-size:8px;min-width:28px;}
+  .str-ctrl{display:none !important;}
+  .def-ctrl{display:none !important;}
 
-  /* Sidebar content density */
+  /* ── SIDEBAR CONTENT — mobile density ── */
   .sec-inner{padding:9px 12px;}
   .sc-num{font-size:28px;}
   .overall-num{font-size:42px;}
-  .upload-zone{padding:10px 8px;min-height:80px;}
+  .upload-zone{padding:10px 8px;min-height:70px;}
   .psa-tbl{font-size:9px;}
   .psa-tbl th{padding:4px 6px;}
   .psa-tbl td{padding:4px 6px;}
-
-  /* Side toggle — touch friendly */
   .side-toggle{min-height:44px;}
   .side-btn{padding:10px 0;font-size:10px;}
-
-  /* Footer buttons */
   .sb-foot{padding:8px 12px;}
 
-  /* Report overlay — still full-screen on mobile */
+  /* ── REPORT ── */
   .rpt-overlay{padding:12px;}
 
-  /* Drop prompt text */
+  /* ── DROP PROMPT ── */
   .drop-ov-s{font-size:0;}
-  .drop-ov-s::after{content:'or tap the panel below';font-size:10px;}
+  .drop-ov-s::after{content:'swipe up panel to upload';font-size:10px;}
 }
 </style>
 </head>
@@ -1157,7 +1167,7 @@ const GREEN   = '#0066CC';
 const MAGENTA = 'rgb(236,0,140)';
 const GREY    = '#0D0D0D';
 const DEFCOL  = 'rgb(220,40,20)';
-const HIT     = 14;
+const HIT     = window.innerWidth<=430?28:14;
 const GAP     = 1;
 const RS      = 38;
 const CARD_W_MM = 63.5;  // standard Pokémon TCG card width
@@ -2369,15 +2379,16 @@ function drawCanvas(){
   if(showCL) drawCenterlines();
 
   // ─ Line helpers — constant screen-pixel width at any zoom ─
-  const LW=1.8;
+  const MOB=window.innerWidth<=430;
+  const LW=MOB?3.2:1.8;
   function line(x1,y1,x2,y2,col,hot,dash){
     ctx.save();ctx.strokeStyle=col;ctx.lineWidth=hot?LW*2.2:LW;
-    ctx.shadowColor=col;ctx.shadowBlur=hot?7:2.5;
-    if(dash) ctx.setLineDash([7,5]);
+    ctx.shadowColor=col;ctx.shadowBlur=hot?(MOB?12:7):(MOB?5:2.5);
+    if(dash) ctx.setLineDash(MOB?[10,7]:[7,5]);
     ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();
   }
   function knob(x,y,col,hot){
-    const r=hot?8:5;
+    const r=hot?(MOB?14:8):(MOB?10:5);
     ctx.save();
     if(hot){
       ctx.fillStyle='rgba(255,255,255,0.65)';ctx.strokeStyle=col;ctx.lineWidth=2.5;
@@ -2397,11 +2408,12 @@ function drawCanvas(){
   // Back inner border has right-angle corners; only front uses the rounded radius
   const innerCR = (activeSide==='back' ? 0 : CARD_INNER_CORNER_MM) * pmH;
 
-  // Outer BLACK dashed (card edges) — always visible
-  line(oLx,0,oLx,CH,THEME.cardLine,isH('oL'),true); knob(oLx,midY,THEME.cardLine,isH('oL'));
-  line(oRx,0,oRx,CH,THEME.cardLine,isH('oR'),true); knob(oRx,midY,THEME.cardLine,isH('oR'));
-  line(0,oTy,CW,oTy,THEME.cardLine,isH('oT'),true); knob(midX,oTy,THEME.cardLine,isH('oT'));
-  line(0,oBy,CW,oBy,THEME.cardLine,isH('oB'),true); knob(midX,oBy,THEME.cardLine,isH('oB'));
+  // Outer dashed (card edges) — always visible
+  const outerCol=MOB?'rgba(255,255,255,.85)':THEME.cardLine;
+  line(oLx,0,oLx,CH,outerCol,isH('oL'),true); knob(oLx,midY,outerCol,isH('oL'));
+  line(oRx,0,oRx,CH,outerCol,isH('oR'),true); knob(oRx,midY,outerCol,isH('oR'));
+  line(0,oTy,CW,oTy,outerCol,isH('oT'),true); knob(midX,oTy,outerCol,isH('oT'));
+  line(0,oBy,CW,oBy,outerCol,isH('oB'),true); knob(midX,oBy,outerCol,isH('oB'));
 
   // Outer card rounded-corner arcs — show physical card rounding at each corner
   if(outerCR>2){
