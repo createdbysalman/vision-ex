@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>VISION ex · Card Centering Analysis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -149,7 +149,8 @@ body{
 
 /* ── HEADER ── */
 .hdr{
-  height:44px;
+  height:calc(44px + env(safe-area-inset-top,0px));
+  padding-top:env(safe-area-inset-top,0px);
   display:flex;align-items:stretch;
   background:var(--text);
   flex-shrink:0;position:relative;z-index:10;
@@ -186,7 +187,7 @@ body{
 }
 
 /* ── LAYOUT ── */
-.app{display:flex;height:calc(100vh - 44px);}
+.app{display:flex;height:calc(100vh - 44px - env(safe-area-inset-top,0px));}
 
 /* ── SIDEBAR ── */
 .sb{
@@ -332,6 +333,24 @@ body{
 .def-del:hover{color:var(--defcol);}
 .no-def{font-size:10px;color:var(--label2);font-style:italic;padding:5px 0;}
 .ph{font-family:var(--font-cd);font-size:10px;color:var(--label2);font-style:italic;padding:6px 0;}
+
+/* Auto-detected (unconfirmed) defect entries */
+.def-entry.def-auto{border:1px dashed var(--yellowD);background:rgba(255,205,0,.07);border-radius:2px;padding:5px 4px 6px;margin:2px 0;}
+.def-ai-row{display:flex;align-items:center;gap:5px;margin-bottom:4px;}
+.def-ai-badge{
+  font-family:var(--font-cd);font-size:7.5px;font-weight:800;letter-spacing:.1em;
+  background:var(--yellow);color:var(--text);padding:1px 5px;flex-shrink:0;
+}
+.def-loc-tag{
+  font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--label);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.def-confirm-btn{
+  font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  background:transparent;border:1px solid var(--yellowD);color:var(--yellowD);
+  padding:2px 6px;cursor:pointer;flex-shrink:0;transition:all .12s;
+}
+.def-confirm-btn:hover{background:var(--yellow);color:var(--text);}
 
 .sb-foot{padding:10px 14px;border-top:1px solid var(--border);background:var(--white);flex-shrink:0;display:flex;flex-direction:column;gap:6px;}
 .btn-rpt{
@@ -480,6 +499,27 @@ body{
 .def-ctrl select{
   padding:3px 6px;border:1px solid var(--borderL);
   background:var(--paper);font-family:var(--font-ui);font-size:10px;color:var(--text);
+}
+
+/* Scan-for-defects controls */
+.scan-ctrl{display:flex;align-items:center;gap:6px;}
+.scan-sens-lbl{
+  font-family:var(--font-cd);font-size:8.5px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--label);white-space:nowrap;
+}
+.scan-slider{-webkit-appearance:none;width:64px;height:2px;background:var(--borderL);outline:none;cursor:pointer;}
+.scan-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:11px;height:11px;
+  background:var(--text);border:2px solid var(--white);
+  box-shadow:0 0 0 1px var(--border);cursor:pointer;
+}
+.scan-prog{display:none;align-items:center;gap:5px;}
+.scan-prog.show{display:flex;}
+.scan-prog-track{width:56px;height:4px;background:var(--white);border:1px solid var(--borderL);position:relative;overflow:hidden;}
+.scan-prog-fill{height:100%;width:0%;background:var(--yellow);transition:width .12s linear;}
+.scan-prog-lbl{
+  font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--label);white-space:nowrap;
 }
 
 /* Viewport */
@@ -682,11 +722,11 @@ body{
 
   /* ── LAYOUT ── */
   .app{flex-direction:column;}
-  .cv{flex:1;height:calc(100vh - 40px);}
+  .cv{flex:1;height:calc(100vh - 40px - env(safe-area-inset-top,0px));}
   .cv-wrap{touch-action:none;}
 
   /* ── HEADER — minimal on mobile ── */
-  .hdr{height:40px;}
+  .hdr{height:calc(40px + env(safe-area-inset-top,0px));}
   .hdr-sub,.hdr-rule,.hdr-center,.hdr-pill{display:none !important;}
   .hdr-inner{padding:0 10px;}
   .hdr-left img{height:22px !important;}
@@ -695,32 +735,45 @@ body{
   .theme-btn{padding:2px 8px;font-size:8px;}
   .hdr-tag{font-size:7.5px;padding:2px 5px;}
 
-  /* ── SIDEBAR → BOTTOM SHEET ── */
+  /* ── SIDEBAR → BOTTOM SHEET (3 detents: peek / half / full) ──
+     iOS reserves the very bottom edge of the screen for its
+     swipe-up-to-home gesture, and Android gesture-nav does the same —
+     a collapsed sheet sitting flush at bottom:0 puts our own drag
+     handle right in that zone, fighting the system gesture. The peek
+     detent height below is pushed up by env(safe-area-inset-bottom) so
+     the handle always has clearance above it. */
   .sb{
+    --peek-h: calc(56px + env(safe-area-inset-bottom,0px));
     position:fixed;bottom:0;left:0;right:0;
-    width:100%;height:65vh;z-index:30;
-    transform:translateY(calc(100% - 44px));
+    width:100%;height:min(90vh, calc(100vh - 40px));z-index:30;
+    transform:translateY(calc(100% - var(--peek-h)));
     transition:transform .35s cubic-bezier(.4,0,.2,1);
     border-top:2px solid var(--yellow);
     border-right:none;
     border-radius:16px 16px 0 0;
     box-shadow:0 -4px 24px rgba(0,0,0,.15);
+    padding-bottom:env(safe-area-inset-bottom,0px);
   }
-  .sb.open{transform:translateY(0);}
+  .sb[data-detent="half"]{transform:translateY(max(0px, calc(100% - 50vh)));}
+  .sb[data-detent="full"]{transform:translateY(0);}
   .sb-body{overflow-y:auto;-webkit-overflow-scrolling:touch;}
 
-  /* Handle bar — yellow accent */
-  .sb::before{
-    content:'';display:block;width:40px;height:4px;
-    background:var(--yellow);border-radius:2px;margin:10px auto 6px;
-    pointer-events:none;
+  /* Handle — a full-width ~52px touch target (Apple HIG minimum ~44pt)
+     with the same slim yellow-pill grabber visual centered inside it,
+     so it's easy to grab without shrinking the tap area down to the
+     4px-tall bar itself. */
+  .sb-handle{display:block !important;position:relative;}
+  .sb-handle::after{
+    content:'';position:absolute;top:50%;left:50%;
+    width:40px;height:4px;transform:translate(-50%,-50%);
+    background:var(--yellow);border-radius:2px;pointer-events:none;
   }
-  .sb-handle{display:block !important;}
 
-  /* Backdrop */
+  /* Backdrop — shown for half/full, not for peek */
   .sb-backdrop{
     display:none;position:fixed;inset:0;
     background:rgba(0,0,0,.4);z-index:29;
+    transition:opacity .35s;
   }
   .sb-backdrop.show{display:block;}
 
@@ -743,6 +796,13 @@ body{
   .zoom-lbl{font-size:8px;min-width:28px;flex-shrink:0;}
   .str-ctrl{display:none !important;}
   .def-ctrl{display:none !important;}
+  /* Scan-for-defects: keep the slider + overlay toggle (still useful one-
+     handed) but drop the text label, and grow the slider's thumb/track a
+     touch — the 11px desktop thumb is under Apple's ~44pt touch guidance,
+     and every other mobile control below trims for the same reason. */
+  .scan-sens-lbl{display:none;}
+  .scan-slider{width:44px;height:4px;}
+  .scan-slider::-webkit-slider-thumb{width:18px;height:18px;}
   /* Scroll fade hints */
   .tb::before,.tb::after{
     content:'';position:sticky;top:0;bottom:0;width:12px;flex-shrink:0;
@@ -777,6 +837,7 @@ body{
 <meta name="apple-mobile-web-app-title" content="VISION ex">
 <meta name="theme-color" content="#0D0D0D">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%230D0D0D'/><text x='256' y='320' font-size='260' font-family='sans-serif' font-weight='900' fill='%23FFCD00' text-anchor='middle'>ex</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
 
@@ -828,12 +889,17 @@ body{
 
   <div class="sec"><div class="sec-inner">
     <div class="sec-lbl">Card Information</div>
-    <div class="field"><label>Card Name</label><input id="fName" type="text" placeholder="e.g. Charizard"></div>
+    <div class="field" style="position:relative;">
+      <label>Card Name <span id="searchHint" style="font-weight:400;letter-spacing:.05em;text-transform:none;color:var(--label2);font-size:7px;">(type to search)</span></label>
+      <input id="fName" type="text" placeholder="e.g. Charizard" autocomplete="off">
+      <div id="cardSearchDrop" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:999;max-height:220px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-top:none;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
+    </div>
     <div class="field"><label>Set / Series</label><input id="fSet" type="text" placeholder="e.g. Base Set 1st Edition"></div>
     <div class="field-row">
       <div class="field"><label>Year</label><input id="fYear" type="text" placeholder="1999"></div>
       <div class="field"><label>Card No.</label><input id="fNum" type="text" placeholder="4/102"></div>
     </div>
+    <div id="autoIdStatus" style="display:none;margin-top:6px;padding:5px 8px;font-family:var(--font-cd);font-size:10px;font-weight:600;letter-spacing:.06em;border-radius:3px;text-align:center;"></div>
   </div></div>
 
   <div class="sec"><div class="sec-inner">
@@ -1000,7 +1066,7 @@ body{
     <div class="tb-group" data-group="orient">
       <button class="tb-btn" id="rotCCW" onclick="rotateBake(-90)" disabled title="Rotate 90° counter-clockwise">↺ 90°</button>
       <button class="tb-btn" id="rotCW"  onclick="rotateBake(90)"  disabled title="Rotate 90° clockwise">↻ 90°</button>
-      <button class="tb-btn" id="btnStr" onclick="setMode('straighten')" disabled>Straighten</button>
+      <button class="tb-btn" id="btnStr" onclick="setMode(mode==='straighten'?'lines':'straighten')" disabled>Straighten</button>
       <div class="str-ctrl" id="strCtrl">
         <input class="str-slider" id="strSlider" type="range" min="-15" max="15" step="0.01" value="0"
                oninput="setAngle(parseFloat(this.value))" onmousedown="saveState()">
@@ -1029,7 +1095,7 @@ body{
     <!-- Group 3: Line measurement -->
     <div class="tb-group" data-group="measure">
       <button class="tb-btn" id="autoBtn" onclick="triggerAutoDetect()" disabled>Auto-Detect</button>
-      <button class="tb-btn" id="btnTilt" onclick="setMode('tilt')"     disabled title="Rotate inner border lines to match a crooked print">Tilt</button>
+      <button class="tb-btn" id="btnTilt" onclick="setMode(mode==='tilt'?'lines':'tilt')"     disabled title="Rotate inner border lines to match a crooked print">Tilt</button>
       <div class="str-ctrl" id="tiltCtrl">
         <span id="tiltLineLbl" style="font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--label);white-space:nowrap;padding:0 2px;">Click a border to select</span>
         <input class="str-slider" id="tiltSlider" type="range" min="-5" max="5" step="0.01" value="0" disabled
@@ -1048,7 +1114,7 @@ body{
     <div class="tb-sep"></div>
     <!-- Group 4: Defect annotation -->
     <div class="tb-group" data-group="defect">
-      <button class="tb-btn" id="btnDef" onclick="setMode('defect')" disabled>Mark Defects</button>
+      <button class="tb-btn" id="btnDef" onclick="setMode(mode==='defect'?'lines':'defect')" disabled>Mark Defects</button>
       <div class="def-ctrl" id="defCtrl">
         <select id="defType">
           <option value="blemish">Surface Blemish</option>
@@ -1059,6 +1125,20 @@ body{
           <option value="stain">Stain</option>
           <option value="other">Other</option>
         </select>
+      </div>
+    </div>
+    <div class="tb-sep"></div>
+    <!-- Group 4b: Simulated defect scan -->
+    <div class="tb-group" data-group="scan">
+      <button class="tb-btn" id="btnScanDefects" onclick="runDefectScan()" disabled title="Simulate a UV/raking-light inspection pass and auto-suggest defects">Scan for Defects</button>
+      <div class="scan-ctrl">
+        <span class="scan-sens-lbl">Sensitivity</span>
+        <input class="scan-slider" id="scanSensitivity" type="range" min="1" max="100" value="50" title="Detection sensitivity">
+        <button class="tb-btn" id="scanOverlayBtn" onclick="toggleScanOverlay()" disabled title="Toggle scan overlay on/off without re-scanning">Overlay</button>
+      </div>
+      <div class="scan-prog" id="scanProg">
+        <div class="scan-prog-track"><div class="scan-prog-fill" id="scanProgFill"></div></div>
+        <span class="scan-prog-lbl" id="scanProgLbl">0%</span>
       </div>
     </div>
     <div class="tb-sep"></div>
@@ -1176,6 +1256,179 @@ body{
 
 <script>
 // ════════════════════════════════════════════
+//  AUTO-ID: OCR + Pokemon TCG API + Search
+// ════════════════════════════════════════════
+
+let _tWorker = null;
+async function _getTessWorker() {
+  if (_tWorker) return _tWorker;
+  const w = await Tesseract.createWorker('eng');
+  await w.setParameters({ tessedit_char_whitelist: '0123456789/' });
+  _tWorker = w;
+  return w;
+}
+
+function _showIdStatus(msg, color) {
+  const el = document.getElementById('autoIdStatus');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.background = color === 'ok' ? 'rgba(0,102,0,.1)' : color === 'err' ? 'rgba(200,40,20,.1)' : 'rgba(0,0,0,.06)';
+  el.style.color = color === 'ok' ? '#006600' : color === 'err' ? '#C82814' : 'var(--label)';
+}
+
+function _fillCardFields(card, fallbackNum) {
+  document.getElementById('fName').value = card.name || '';
+  document.getElementById('fSet').value = (card.set && card.set.name) || '';
+  document.getElementById('fYear').value = (card.set && card.set.releaseDate) ? card.set.releaseDate.slice(0, 4) : '';
+  document.getElementById('fNum').value = card.number ? card.number + '/' + (card.set.printedTotal || card.set.total || '') : (fallbackNum || '');
+}
+
+async function autoIdentifyCard(imageEl) {
+  _showIdStatus('IDENTIFYING CARD...', 'wait');
+  try {
+    const cW = imageEl.naturalWidth, cH = imageEl.naturalHeight;
+    const oc = document.createElement('canvas');
+    const worker = await _getTessWorker();
+    const numRe = /(\d{1,3})\s*\/\s*(\d{1,3})/;
+
+    const passes = [
+      { top:.92, bot:.96, right:.30, inv:true,  th:150, sc:6 },
+      { top:.92, bot:.96, right:.30, inv:false, th:140, sc:6 },
+      { top:.91, bot:.97, right:.40, inv:true,  th:140, sc:5 },
+      { top:.91, bot:.97, right:.40, inv:false, th:130, sc:5 },
+      { top:.93, bot:.96, right:.25, inv:true,  th:160, sc:6 },
+      { top:.88, bot:.98, right:.50, inv:true,  th:140, sc:4 },
+    ];
+
+    let cardNumber = '', setTotal = 0;
+
+    for (const p of passes) {
+      const cy = Math.floor(cH * p.top), cw = Math.floor(cW * p.right);
+      const ch = Math.floor(cH * p.bot) - cy;
+      if (cw < 10 || ch < 5) continue;
+      oc.width = cw * p.sc; oc.height = ch * p.sc;
+      const ctx = oc.getContext('2d');
+      ctx.drawImage(imageEl, 0, cy, cw, ch, 0, 0, oc.width, oc.height);
+      const id = ctx.getImageData(0, 0, oc.width, oc.height);
+      for (let i = 0; i < id.data.length; i += 4) {
+        let avg = (id.data[i] + id.data[i+1] + id.data[i+2]) / 3;
+        if (p.inv) avg = 255 - avg;
+        id.data[i] = id.data[i+1] = id.data[i+2] = avg < p.th ? 0 : 255;
+      }
+      ctx.putImageData(id, 0, 0);
+      const { data: { text } } = await worker.recognize(oc);
+      const m = text.match(numRe);
+      if (m) {
+        const n = parseInt(m[1]), tot = parseInt(m[2]);
+        if (n >= 1 && n <= 999 && tot >= 10 && tot <= 999 && n <= tot + 100) {
+          cardNumber = n + '/' + tot; setTotal = tot; break;
+        }
+      }
+    }
+
+    if (!cardNumber) {
+      _showIdStatus('COULD NOT READ CARD — TYPE NAME TO SEARCH', 'err');
+      return;
+    }
+    _showIdStatus('FOUND #' + cardNumber + ' — LOOKING UP...', 'wait');
+    const num = cardNumber.split('/')[0];
+    const card = await _searchTcgApi(num, setTotal);
+    if (card) {
+      _fillCardFields(card, cardNumber);
+      _showIdStatus('IDENTIFIED: ' + card.name + ' — ' + (card.set && card.set.name || ''), 'ok');
+    } else {
+      document.getElementById('fNum').value = cardNumber;
+      _showIdStatus('CARD #' + cardNumber + ' NOT FOUND — TYPE NAME TO SEARCH', 'err');
+    }
+  } catch (e) {
+    console.error('Auto-ID error:', e);
+    _showIdStatus('AUTO-ID FAILED — TYPE NAME TO SEARCH', 'err');
+  }
+}
+
+async function _searchTcgApi(num, setTotal) {
+  const API = 'https://api.pokemontcg.io/v2';
+  if (setTotal) {
+    try {
+      const setsResp = await fetch(API + '/sets?pageSize=250&orderBy=-releaseDate');
+      if (setsResp.ok) {
+        const setsData = await setsResp.json();
+        const matchingSets = (setsData.data || []).filter(s => s.printedTotal === setTotal);
+        for (const s of matchingSets) {
+          const r = await fetch(API + '/cards?q=set.id:"' + s.id + '"+number:"' + num + '"&pageSize=5');
+          if (r.ok) { const d = await r.json(); if (d.data && d.data.length) return d.data[0]; }
+        }
+      }
+    } catch (e) { console.warn('Set-total search failed:', e); }
+  }
+  try {
+    const r = await fetch(API + '/cards?q=number:"' + num + '"&pageSize=30&orderBy=-set.releaseDate');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.data && d.data.length) {
+        if (setTotal) { const match = d.data.find(c => c.set && c.set.printedTotal === setTotal); if (match) return match; }
+        return d.data[0];
+      }
+    }
+  } catch (e) { console.warn('Number search failed:', e); }
+  return null;
+}
+
+// Card Name live search
+(function() {
+  const API = 'https://api.pokemontcg.io/v2';
+  const input = document.getElementById('fName');
+  const drop = document.getElementById('cardSearchDrop');
+  let debounce = null, abortCtrl = null;
+
+  input.addEventListener('input', function() {
+    clearTimeout(debounce);
+    const q = this.value.trim();
+    if (q.length < 2) { drop.style.display = 'none'; return; }
+    debounce = setTimeout(() => searchCards(q), 350);
+  });
+  input.addEventListener('blur', function() { setTimeout(() => { drop.style.display = 'none'; }, 200); });
+
+  async function searchCards(q) {
+    if (abortCtrl) abortCtrl.abort();
+    abortCtrl = new AbortController();
+    try {
+      const r = await fetch(API + '/cards?q=name:"' + encodeURIComponent(q) + '*"&pageSize=15&orderBy=-set.releaseDate&select=name,number,set,rarity,images', { signal: abortCtrl.signal });
+      if (!r.ok) return;
+      const d = await r.json();
+      renderResults(d.data || []);
+    } catch (e) { if (e.name !== 'AbortError') console.warn('Search error:', e); }
+  }
+
+  function renderResults(cards) {
+    if (!cards.length) { drop.style.display = 'none'; return; }
+    drop.innerHTML = '';
+    for (const c of cards) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--borderL);font-family:var(--font-ui);font-size:11px;';
+      const thumb = c.images && c.images.small ? '<img src="' + c.images.small + '" style="width:28px;height:auto;border-radius:2px;flex-shrink:0;" loading="lazy">' : '';
+      const setName = c.set ? c.set.name : '';
+      const num = c.number ? c.number + '/' + (c.set.printedTotal || c.set.total || '') : '';
+      row.innerHTML = thumb +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.name + '</div>' +
+          '<div style="font-size:9px;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + setName + (num ? ' · #' + num : '') + (c.rarity ? ' · ' + c.rarity : '') + '</div>' +
+        '</div>';
+      row.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        _fillCardFields(c, '');
+        drop.style.display = 'none';
+        _showIdStatus('SELECTED: ' + c.name + ' — ' + setName, 'ok');
+      });
+      row.addEventListener('mouseenter', function() { this.style.background = 'var(--light)'; });
+      row.addEventListener('mouseleave', function() { this.style.background = ''; });
+      drop.appendChild(row);
+    }
+    drop.style.display = 'block';
+  }
+})();
+
+// ════════════════════════════════════════════
 //  CONSTANTS
 // ════════════════════════════════════════════
 const GREEN   = '#0066CC';
@@ -1226,6 +1479,7 @@ let drawing=null, draggingDefect=null, hoverDefect=null;
 let mouseX=-1, mouseY=-1;
 let altDown=false, shiftDown=false;
 let scanProg=-1; // -1=off, 0-1=animating
+let scanRegions=[], showScanOverlay=true, scanRunning=false;
 let labelRects=[]; // clickable label areas
 let lastPinchDist=null;
 let dblClickTimer=null;
@@ -1371,6 +1625,7 @@ function switchSide(side) {
   document.getElementById('sideToggle').dataset.side=side;
   updateClearBtn();
   const saved=sideData[side];
+  clearScanOverlay();
   if(saved&&saved.loaded){
     L={...saved.L}; defects=saved.defects.map(d=>({...d}));
     imgAngle=saved.imgAngle||0; img=saved.img; loaded=saved.loaded;
@@ -1424,7 +1679,10 @@ function loadFile(f) {
       sideData[activeSide+'_origSrc'] = ev.target.result;
       sideData[activeSide+'_origImg'] = im;
       setupCanvas(); initLines(); activateUI();
+      clearScanOverlay();
       scanProg=0;
+      // Auto-identify card on front-side upload
+      if (activeSide === 'front') autoIdentifyCard(im);
     };
     im.src=ev.target.result;
   };
@@ -1456,7 +1714,7 @@ function activateUI() {
   document.getElementById('scoresWrap').style.display='block';
   document.getElementById('defSec').style.display='';
   document.getElementById('notesSec').style.display='';
-  ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard','gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn','clearBtn','btnTilt'].forEach(id=>{
+  ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard','gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn','clearBtn','btnTilt','btnScanDefects'].forEach(id=>{
     document.getElementById(id).disabled=false;
   });
   document.getElementById('undoBtn').disabled=true;
@@ -1510,12 +1768,12 @@ function setMode(m) {
 }
 function updateToolbar(m){
   const show={
-    lines:    ['orient','crop','measure','history','view','zoom'],
+    lines:    ['orient','crop','measure','defect','scan','history','view','zoom'],
     straighten:['orient','zoom'],
     crop:     ['crop','zoom'],
     tilt:     ['measure','zoom'],
-    defect:   ['defect','history','zoom']
-  }[m]||['orient','crop','measure','history','view','zoom'];
+    defect:   ['defect','scan','history','zoom']
+  }[m]||['orient','crop','measure','defect','scan','history','view','zoom'];
   document.querySelectorAll('.tb-group[data-group]').forEach(g=>{
     g.classList.toggle('tb-hidden',!show.includes(g.dataset.group));
   });
@@ -1633,6 +1891,7 @@ function cropToCard(){
     L.iT=L.iT-y1; L.iB=L.iB-y1;
     L.oL=0; L.oR=cw; L.oT=0; L.oB=ch;
     setupCanvas();
+    clearScanOverlay();
     setMode('lines');
   };
   ni.src=tmp.toDataURL();
@@ -1663,6 +1922,7 @@ function applyCrop(){
     setupCanvas(); initLines();
     cropRect=null; cropHandle=null;
     document.getElementById('cropApplyBtn').disabled=true;
+    clearScanOverlay();
     setMode('lines');
   };
   ni.src=tmp.toDataURL();
@@ -1689,6 +1949,7 @@ function rotateBake(deg) {
     document.getElementById('strNum').value='0.00';
     document.getElementById('strLbl').textContent='+0.00°';
     setupCanvas(); initLines();
+    clearScanOverlay();
   };
   ni.src=tmp.toDataURL();
 }
@@ -1724,32 +1985,107 @@ function runAuto() {
   const get=(x,y)=>{x=cl(Math.round(x),0,W-1);y=cl(Math.round(y),0,H-1);const i=(y*W+x)*4;return[px[i],px[i+1],px[i+2]];};
   const diff=(a,b)=>Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2);
   const avg=ps=>{const s=ps.reduce((a,p)=>[a[0]+p[0],a[1]+p[1],a[2]+p[2]],[0,0,0]);return s.map(v=>v/ps.length);};
+  const median=ps=>[0,1,2].map(c=>{const v=ps.map(p=>p[c]).sort((a,b)=>a-b);return v[v.length>>1];});
+
   const bgPx=[];for(let k=0;k<8;k++) bgPx.push(get(k,k),get(W-1-k,k),get(k,H-1-k),get(W-1-k,H-1-k));
   const bg=avg(bgPx);
-  const sY=[H*.3,H*.5,H*.7],sX=[W*.3,W*.5,W*.7],TH=28;
-  let oL=.04,oR=.96,oT=.03,oB=.97;
-  for(let x=0;x<W*.4;x++){if(sY.reduce((s,y)=>s+diff(get(x,y),bg),0)/3>TH){oL=x/W;break;}}
-  for(let x=W-1;x>W*.6;x--){if(sY.reduce((s,y)=>s+diff(get(x,y),bg),0)/3>TH){oR=x/W;break;}}
-  for(let y=0;y<H*.4;y++){if(sX.reduce((s,x)=>s+diff(get(x,y),bg),0)/3>TH){oT=y/H;break;}}
-  for(let y=H-1;y>H*.6;y--){if(sX.reduce((s,x)=>s+diff(get(x,y),bg),0)/3>TH){oB=y/H;break;}}
-  const oLp=Math.round(oL*W),oRp=Math.round(oR*W),oTp=Math.round(oT*H),oBp=Math.round(oB*H);
-  const bPx=[];for(let k=0;k<5;k++){const f=.35+k*.06,yy=oTp+(oBp-oTp)*f,xx=oLp+(oRp-oLp)*f;bPx.push(get(oLp+3,yy),get(oRp-3,yy),get(xx,oTp+3),get(xx,oBp-3));}
-  const bc=avg(bPx);const TH2=42;
-  // Starting fallbacks from training data (as fraction of card span)
+  const sY=[.25,.35,.5,.65,.75].map(f=>H*f), sX=[.25,.35,.5,.65,.75].map(f=>W*f);
+
+  // Steepest-transition edge finder. Scans a smoothed "distance from
+  // reference color" profile between i0 and i1 and returns the position of
+  // the SHARPEST jump away from the reference, rather than the first pixel
+  // past a fixed threshold. A scanned card photo often has a soft drop
+  // shadow or anti-aliased halo before the true edge — that only produces
+  // a gradual ramp in the profile, while the real outer-card or
+  // border-to-content edge is a spike, so this keeps landing on the true
+  // edge instead of the shadow that precedes it.
+  function scanEdge(lines, refColor, i0, i1, axisIsX, step, minJump){
+    const dir=i1>=i0?1:-1, n=Math.abs(i1-i0);
+    if(n<step+1) return null;
+    const prof=[];
+    for(let k=0;k<=n;k++){
+      const i=i0+k*dir;
+      const pts=lines.map(l=>axisIsX?get(i,l):get(l,i));
+      prof.push(diff(avg(pts),refColor));
+    }
+    const sm=prof.map((v,k)=>{
+      const a=prof[Math.max(0,k-1)], c=prof[Math.min(prof.length-1,k+1)];
+      return (a+v+c)/3;
+    });
+    // First jump that clears the bar — not the single sharpest jump in the
+    // whole window. Scanning outward→inward and taking the global max lets
+    // a stronger, unrelated transition further inside (e.g. a text box
+    // edge) win over the real nearby boundary; the real edge should be the
+    // first genuine jump encountered, same as how a photographed card's
+    // edge is the first thing you'd cross moving in from the background.
+    // Textured/foil borders (embossed pattern, holo sparkle) fluctuate
+    // enough on their own to spike past minJump for a step or two without
+    // being a real edge, so a candidate jump must also be SUSTAINED —
+    // the elevated level has to hold for several more samples, not
+    // immediately fall back — before it's accepted.
+    const CONFIRM=6;
+    for(let k=step;k<sm.length;k++){
+      const grad=sm[k]-sm[k-step];
+      if(grad<minJump) continue;
+      const need=Math.min(CONFIRM,sm.length-1-k);
+      if(need<2) return i0+k*dir; // too close to the window edge to confirm further — accept
+      let sustained=0;
+      for(let j=1;j<=need;j++){ if(sm[k+j]-sm[k-step]>=minJump*.6) sustained++; }
+      if(sustained>=Math.ceil(need*.6)) return i0+k*dir;
+    }
+    return null;
+  }
+
+  // 1 ─ OUTER edge: background → card, scanned inward from each image edge.
+  //     A photographed card often has a soft drop-shadow/anti-aliased halo
+  //     before the true edge — that ramp climbs gradually, so a wide step
+  //     with a higher bar is needed or the "first jump" match fires
+  //     partway up the ramp instead of waiting for the real, much sharper
+  //     jump into the card itself.
+  const oLx=scanEdge(sY,bg,0,Math.round(W*.42),true,4,32) ?? Math.round(W*.04);
+  const oRx=scanEdge(sY,bg,W-1,Math.round(W*.58),true,4,32) ?? Math.round(W*.96);
+  const oTy=scanEdge(sX,bg,0,Math.round(H*.42),false,4,32) ?? Math.round(H*.03);
+  const oBy=scanEdge(sX,bg,H-1,Math.round(H*.58),false,4,32) ?? Math.round(H*.97);
+
+  // 2 ─ Border color reference: MEDIAN over many points ringing all 4
+  //     sides, inset well past the outer edge (not just a few px) so the
+  //     sample lands solidly inside the true border rather than still in
+  //     that same soft halo — otherwise the reference color comes out too
+  //     light and throws off the inner-edge scan in step 3 below.
+  const insetX=Math.max(10,(oRx-oLx)*.03), insetY=Math.max(10,(oBy-oTy)*.03);
+  const ringPx=[];
+  for(let f=.08;f<=.92;f+=.05){
+    ringPx.push(get(oLx+insetX, oTy+(oBy-oTy)*f), get(oRx-insetX, oTy+(oBy-oTy)*f));
+    ringPx.push(get(oLx+(oRx-oLx)*f, oTy+insetY), get(oLx+(oRx-oLx)*f, oBy-insetY));
+  }
+  const bc=median(ringPx);
+
+  // 3 ─ INNER edge: border color → interior content, searched within a
+  //     window anchored on the empirical per-side border proportions
+  //     (trained on real cards) so the scan can't lock onto a stronger,
+  //     unrelated transition deep in the artwork instead of the actual
+  //     border/content boundary. The window is deliberately wide (0.15x-
+  //     3.2x of the reference) — the reference is trained on only a
+  //     couple of cards, and special/textured-foil borders (e.g. "ex"
+  //     rarities) run noticeably thicker, so a narrow window can clip the
+  //     true edge before the scan ever reaches it.
   const ref=INNER_REF[activeSide]||INNER_REF.front;
-  const cFW=oR-oL, cFH=oB-oT;
-  let iL=oL+(ref.L/100)*cFW, iR=oR-(ref.R/100)*cFW;
-  let iT=oT+(ref.T/100)*cFH, iB=oB-(ref.B/100)*cFH;
-  for(let x=oLp+2;x<W*.5;x++){if(sY.reduce((s,y)=>s+diff(get(x,y),bc),0)/3>TH2){iL=(x-1)/W;break;}}
-  for(let x=oRp-2;x>W*.5;x--){if(sY.reduce((s,y)=>s+diff(get(x,y),bc),0)/3>TH2){iR=(x+1)/W;break;}}
-  for(let y=oTp+2;y<H*.5;y++){if(sX.reduce((s,x)=>s+diff(get(x,y),bc),0)/3>TH2){iT=(y-1)/H;break;}}
-  for(let y=oBp-2;y>H*.5;y--){if(sX.reduce((s,x)=>s+diff(get(x,y),bc),0)/3>TH2){iB=(y+1)/H;break;}}
-  const g=.005,IW=img.width,IH=img.height;
+  const cFW=oRx-oLx, cFH=oBy-oTy;
+  const iL=scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22)
+    ?? (oLx+cFW*ref.L/100);
+  const iR=scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22)
+    ?? (oRx-cFW*ref.R/100);
+  const iT=scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22)
+    ?? (oTy+cFH*ref.T/100);
+  const iB=scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22)
+    ?? (oBy-cFH*ref.B/100);
+
+  const g=.005*W, IW=img.width, IH=img.height, sx=IW/W, sy=IH/H;
   L={
-    oL:cl(oL,.001,.38)*IW, oR:cl(oR,.62,.999)*IW,
-    oT:cl(oT,.001,.38)*IH, oB:cl(oB,.62,.999)*IH,
-    iL:cl(iL,oL+g,.48)*IW, iR:cl(iR,.52,oR-g)*IW,
-    iT:cl(iT,oT+g,.48)*IH, iB:cl(iB,.52,oB-g)*IH,
+    oL:cl(oLx,W*.001,W*.38)*sx, oR:cl(oRx,W*.62,W*.999)*sx,
+    oT:cl(oTy,H*.001,H*.38)*sy, oB:cl(oBy,H*.62,H*.999)*sy,
+    iL:cl(iL,oLx+g,W*.48)*sx, iR:cl(iR,W*.52,oRx-g)*sx,
+    iT:cl(iT,oTy+g,H*.48)*sy, iB:cl(iB,H*.52,oBy-g)*sy,
   };
 }
 
@@ -1768,6 +2104,7 @@ function resetLines(){
     document.getElementById('undoBtn').disabled=true;
     document.getElementById('redoBtn').disabled=true;
     setupCanvas(); initLines(); tiltTarget=null; _syncTiltUI();
+    clearScanOverlay();
     setMode('lines');
   };
   ni.src=sideSrc;
@@ -2120,24 +2457,360 @@ window.addEventListener('resize',()=>{ if(loaded) setupCanvas(); });
 // ════════════════════════════════════════════
 //  DEFECTS
 // ════════════════════════════════════════════
-function addDefect(cx,cy,r){ saveState();defSeq++;defects.push({id:defSeq,cx,cy,r,type:document.getElementById('defType').value,note:''});renderDefList(); }
+function addDefect(cx,cy,r){ saveState();defSeq++;defects.push({id:defSeq,cx,cy,r,type:document.getElementById('defType').value,note:'',auto:false,loc:''});renderDefList(); }
 function removeDefect(id){ saveState();defects=defects.filter(d=>d.id!==id);renderDefList(); }
 function setDefType(id,t){ const d=defects.find(d=>d.id===id);if(d)d.type=t; }
 function setDefNote(id,n){ const d=defects.find(d=>d.id===id);if(d)d.note=n; }
+function confirmDefect(id){ const d=defects.find(d=>d.id===id); if(d){ d.auto=false; renderDefList(); } }
 function renderDefList(){
   const el=document.getElementById('defList');
   if(!defects.length){el.innerHTML='<div class="no-def">No defects marked yet</div>';return;}
   el.innerHTML='';
   defects.forEach((d,i)=>{
-    const div=document.createElement('div');div.className='def-entry';
+    const div=document.createElement('div');div.className='def-entry'+(d.auto?' def-auto':'');
     div.innerHTML=`
       <div class="def-num">${i+1}</div>
       <div class="def-body">
+        ${d.auto?`<div class="def-ai-row">
+          <span class="def-ai-badge">AI</span>
+          <span class="def-loc-tag">${d.loc||'Auto-detected'}</span>
+          <button class="def-confirm-btn" onclick="confirmDefect(${d.id})">Confirm</button>
+        </div>`:''}
         <select onchange="setDefType(${d.id},this.value)">${Object.entries(DTYPES).map(([v,l])=>`<option value="${v}"${v===d.type?' selected':''}>${l}</option>`).join('')}</select>
         <input type="text" placeholder="Optional note..." value="${d.note||''}" oninput="setDefNote(${d.id},this.value)">
       </div>
       <button class="def-del" onclick="removeDefect(${d.id})">×</button>`;
     el.appendChild(div);
+  });
+}
+
+// ════════════════════════════════════════════
+//  DEFECT SCAN — simulated UV / raking-light pass
+//  Sobel edges + high-pass texture -> flagged pixels -> clustered
+//  regions -> classified by proximity to the L border lines -> pushed
+//  into the same `defects` array as unconfirmed suggestions.
+// ════════════════════════════════════════════
+function nextFrame(){ return new Promise(res=>requestAnimationFrame(res)); }
+
+// Runs rowFn(y0,y1) over [0,H) in bands, yielding to the browser between bands
+function chunkRows(H, rowsPerChunk, rowFn, onProgress){
+  return new Promise(resolve=>{
+    let y=0;
+    (function step(){
+      const end=Math.min(H,y+rowsPerChunk);
+      rowFn(y,end);
+      y=end;
+      if(onProgress) onProgress(y/H);
+      if(y<H) requestAnimationFrame(step); else resolve();
+    })();
+  });
+}
+
+function setScanProgress(pct,label){
+  const wrap=document.getElementById('scanProg');
+  wrap.classList.add('show');
+  document.getElementById('scanProgFill').style.width=cl(pct,0,100)+'%';
+  document.getElementById('scanProgLbl').textContent=label;
+}
+function hideScanProgress(){ document.getElementById('scanProg').classList.remove('show'); }
+
+function clearScanOverlay(){
+  scanRegions=[];
+  const b=document.getElementById('scanOverlayBtn');
+  if(b){ b.disabled=true; b.classList.remove('on'); }
+  hideScanProgress();
+}
+
+function toggleScanOverlay(){
+  showScanOverlay=!showScanOverlay;
+  document.getElementById('scanOverlayBtn').classList.toggle('on',showScanOverlay);
+}
+
+// Pre-filled defect suggestion — stays visually flagged ("AI" badge, dashed
+// border) until the user clicks Confirm, at which point it's a normal entry.
+function addAutoDefect(cx,cy,r,type,loc){
+  defSeq++;
+  defects.push({id:defSeq,cx,cy,r,type,note:loc,auto:true,loc});
+}
+
+async function runDefectScan(){
+  if(!loaded || scanRunning) return;
+  scanRunning=true;
+  document.getElementById('btnScanDefects').disabled=true;
+  setScanProgress(0,'Preparing…');
+  await nextFrame();
+
+  // 1 ─ Replicate the post-crop/post-rotate view (same transform as cropToCard)
+  //     without mutating img/L, so results align with the corrected card.
+  const cropOx=Math.round(L.oL), cropOy=Math.round(L.oT);
+  const cw=Math.round(L.oR)-cropOx, ch=Math.round(L.oB)-cropOy;
+  if(cw<20||ch<20){ scanRunning=false; document.getElementById('btnScanDefects').disabled=false; hideScanProgress(); return; }
+  const baked=document.createElement('canvas');
+  baked.width=cw; baked.height=ch;
+  const bx=baked.getContext('2d');
+  const rad=imgAngle*Math.PI/180, iCX=img.width/2, iCY=img.height/2;
+  bx.translate(-cropOx,-cropOy); bx.translate(iCX,iCY); bx.rotate(rad); bx.translate(-iCX,-iCY);
+  bx.drawImage(img,0,0);
+
+  // Downscale very large scans so the pipeline stays responsive
+  const MAXDIM=1600;
+  const workScale=Math.min(1,MAXDIM/Math.max(cw,ch));
+  const W=Math.max(1,Math.round(cw*workScale)), H=Math.max(1,Math.round(ch*workScale));
+  let srcCanvas=baked;
+  if(workScale<1){
+    const small=document.createElement('canvas'); small.width=W; small.height=H;
+    small.getContext('2d').drawImage(baked,0,0,W,H);
+    srcCanvas=small;
+  }
+  const src=srcCanvas.getContext('2d').getImageData(0,0,W,H).data;
+
+  await nextFrame();
+  setScanProgress(8,'Converting to grayscale…');
+
+  // 2 ─ Grayscale (luminance-weighted)
+  const gray=new Float32Array(W*H);
+  await chunkRows(H,220,(y0,y1)=>{
+    for(let y=y0;y<y1;y++){
+      for(let x=0;x<W;x++){
+        const i=y*W+x, o=i*4;
+        gray[i]=0.299*src[o]+0.587*src[o+1]+0.114*src[o+2];
+      }
+    }
+  }, p=>setScanProgress(8+p*17,'Converting to grayscale…'));
+
+  await nextFrame();
+  setScanProgress(25,'Detecting edges (Sobel)…');
+
+  // 3 ─ 3x3 Sobel edge magnitude
+  const edge=new Float32Array(W*H);
+  await chunkRows(H,150,(y0,y1)=>{
+    for(let y=Math.max(1,y0);y<Math.min(H-1,y1);y++){
+      for(let x=1;x<W-1;x++){
+        const nw=gray[(y-1)*W+x-1], n=gray[(y-1)*W+x], ne=gray[(y-1)*W+x+1];
+        const w =gray[y*W+x-1],                          e=gray[y*W+x+1];
+        const sw=gray[(y+1)*W+x-1], s=gray[(y+1)*W+x], se=gray[(y+1)*W+x+1];
+        const gx=(ne+2*e+se)-(nw+2*w+sw);
+        const gy=(sw+2*s+se)-(nw+2*n+ne);
+        edge[y*W+x]=Math.sqrt(gx*gx+gy*gy);
+      }
+    }
+  }, p=>setScanProgress(25+p*20,'Detecting edges (Sobel)…'));
+
+  await nextFrame();
+  setScanProgress(48,'Isolating surface texture…');
+
+  // 4 ─ Brightening spike = max(0, original - box-blur(radius 8)), via a
+  //     summed-area table so the blur stays O(1) per pixel regardless of
+  //     radius. Deliberately ONE-SIDED (positive only): whitening (worn
+  //     corners/edges revealing lighter cardstock) and scratches (which
+  //     catch light and read brighter) both LIGHTEN the surface relative
+  //     to their surroundings. Printed ink — trademark symbols, copyright
+  //     text, illustrator credit, logos — is darker than its surroundings,
+  //     so it produces a negative/near-zero value here and is naturally
+  //     excluded, instead of firing like it did under a symmetric abs()
+  //     high-pass or direction-agnostic Sobel magnitude.
+  const integral=new Float64Array((W+1)*(H+1));
+  for(let y=0;y<H;y++){
+    let rowSum=0;
+    const rowBase=(y+1)*(W+1), prevBase=y*(W+1);
+    for(let x=0;x<W;x++){
+      rowSum+=gray[y*W+x];
+      integral[rowBase+x+1]=integral[prevBase+x+1]+rowSum;
+    }
+  }
+  const RADIUS=8;
+  function boxAvg(x,y){
+    const x0=Math.max(0,x-RADIUS), x1=Math.min(W-1,x+RADIUS);
+    const y0=Math.max(0,y-RADIUS), y1=Math.min(H-1,y+RADIUS);
+    const A=integral[y0*(W+1)+x0], B=integral[y0*(W+1)+x1+1];
+    const C=integral[(y1+1)*(W+1)+x0], D=integral[(y1+1)*(W+1)+x1+1];
+    const area=(x1-x0+1)*(y1-y0+1);
+    return (D-B-C+A)/area;
+  }
+  const brightSpike=new Float32Array(W*H);
+  await chunkRows(H,220,(y0,y1)=>{
+    for(let y=y0;y<y1;y++){
+      for(let x=0;x<W;x++){
+        brightSpike[y*W+x]=Math.max(0,gray[y*W+x]-boxAvg(x,y));
+      }
+    }
+  }, p=>setScanProgress(48+p*27,'Isolating surface texture…'));
+
+  await nextFrame();
+  setScanProgress(76,'Thresholding…');
+
+  // 5 ─ Threshold at a fixed statistical percentile (via a histogram, not
+  //     a full sort) rather than a fixed absolute value — this self-
+  //     normalizes per image, so busy/holo artwork and plain matte stock
+  //     get proportionally similar "is this pixel anomalous" bars instead
+  //     of one flooding and the other never firing. Only the brightening
+  //     signal drives flagging; Sobel edge magnitude is direction-agnostic
+  //     (fires on dark ink edges just as readily as light ones) so it's
+  //     kept only as a secondary signal for scratch/print classification
+  //     below, not for deciding what counts as a defect.
+  function percentileThreshold(arr,p){
+    let max=0;
+    for(let i=0;i<arr.length;i++) if(arr[i]>max) max=arr[i];
+    if(max<=0) return 0;
+    const BINS=1024, scale=BINS/(max*1.0000001);
+    const hist=new Uint32Array(BINS);
+    for(let i=0;i<arr.length;i++) hist[Math.min(BINS-1,(arr[i]*scale)|0)]++;
+    const target=arr.length*p;
+    let cum=0;
+    for(let b=0;b<BINS;b++){ cum+=hist[b]; if(cum>=target) return (b/BINS)*max; }
+    return max;
+  }
+  const PIXEL_PCTL=0.99; // top ~1% of brightening values
+  const hpThresh=percentileThreshold(brightSpike,PIXEL_PCTL);
+  const flaggedRaw=new Uint8Array(W*H);
+  for(let i=0;i<W*H;i++){
+    if(brightSpike[i]>hpThresh) flaggedRaw[i]=1;
+  }
+
+  // A high-pass response only lives at the BOUNDARY of a whitened/worn
+  // area (within about one blur radius of the transition) — its interior
+  // reads near-zero because the local average tracks it. Real corner/edge
+  // wear and scratches are thin, ring- or line-shaped, so their flagged
+  // pixels land as a broken outline, not a filled blob. A 1px dilation
+  // bridges those small gaps before clustering so the outline reads as
+  // one region instead of dozens of single-pixel fragments.
+  const flagged=new Uint8Array(W*H);
+  for(let y=0;y<H;y++){
+    for(let x=0;x<W;x++){
+      let v=0;
+      for(let dy=-1;dy<=1&&!v;dy++){
+        for(let dx=-1;dx<=1&&!v;dx++){
+          const xx=x+dx,yy=y+dy;
+          if(xx>=0&&xx<W&&yy>=0&&yy<H&&flaggedRaw[yy*W+xx]) v=1;
+        }
+      }
+      flagged[y*W+x]=v;
+    }
+  }
+
+  await nextFrame();
+  setScanProgress(85,'Clustering regions…');
+
+  // 6 ─ Connected-component clustering. 8-connectivity (paired with the
+  //     dilation above) so a broken outline still merges into one region;
+  //     this is safe now that dark print ink no longer contributes to the
+  //     flagged set, unlike the old symmetric high-pass which chained
+  //     through dense linework into sprawling false regions.
+  //     The sensitivity slider controls the minimum cluster size to count
+  //     as a defect (not the pixel-level bar above), so it reads intuitively:
+  //     low = only obvious/large defects, high = catches small ones too.
+  const sensitivity=+document.getElementById('scanSensitivity').value||50;
+  const minSizeFrac=0.0002-(sensitivity/100)*0.00018; // ~0.0002 (sens=1) .. ~0.00002 (sens=100)
+  const MINSIZE=Math.max(6,Math.round(W*H*minSizeFrac));
+  const MAXSIZE=Math.round(W*H*0.006);           // reject sprawling "regions" — real defects are localized
+  const maxBBox=Math.round(Math.min(W,H)*0.10);  // reject long bounding boxes for the same reason
+  const visited=new Uint8Array(W*H);
+  const regions=[];
+  const stack=[];
+  for(let y0=0;y0<H;y0++){
+    for(let x0=0;x0<W;x0++){
+      const start=y0*W+x0;
+      if(!flagged[start]||visited[start]) continue;
+      let minX=x0,maxX=x0,minY=y0,maxY=y0,count=0,sumX=0,sumY=0,sumEdge=0,sumHP=0;
+      stack.length=0; stack.push(start); visited[start]=1;
+      while(stack.length){
+        const idx=stack.pop();
+        const cy=(idx/W)|0, cx=idx-cy*W;
+        count++; sumX+=cx; sumY+=cy; sumEdge+=edge[idx]; sumHP+=brightSpike[idx];
+        if(cx<minX)minX=cx; if(cx>maxX)maxX=cx; if(cy<minY)minY=cy; if(cy>maxY)maxY=cy;
+        const neigh=[idx-1,idx+1,idx-W,idx+W,idx-W-1,idx-W+1,idx+W-1,idx+W+1];
+        for(const n of neigh){
+          if(n<0||n>=W*H||visited[n]||!flagged[n]) continue;
+          const nx=n%W; if(Math.abs(nx-cx)>1) continue; // guard row-wraparound
+          visited[n]=1; stack.push(n);
+        }
+      }
+      const bw=maxX-minX+1, bh=maxY-minY+1;
+      if(count>=MINSIZE && count<=MAXSIZE && bw<=maxBBox && bh<=maxBBox){
+        regions.push({x1:minX,y1:minY,x2:maxX,y2:maxY,cx:sumX/count,cy:sumY/count,
+          count,avgEdge:sumEdge/count,avgHP:sumHP/count});
+      }
+    }
+  }
+
+  await nextFrame();
+  setScanProgress(94,'Classifying regions…');
+
+  // 7 ─ Classify by proximity to the SAME outer/inner border lines the
+  //     centering system already tracks, then push as unconfirmed defects.
+  const lB=L.iL-L.oL, rB=L.oR-L.iR, tB=L.iT-L.oT, bB=L.oB-L.iB;
+  const marginL=Math.max(4,lB*workScale), marginR=Math.max(4,rB*workScale);
+  const marginT=Math.max(4,tB*workScale), marginB=Math.max(4,bB*workScale);
+  const LOC_LABEL={
+    tl:'Top Left Corner', tr:'Top Right Corner', bl:'Bottom Left Corner', br:'Bottom Right Corner',
+    t:'Top Edge', b:'Bottom Edge', l:'Left Edge', r:'Right Edge', s:'Surface'
+  };
+
+  const toNative=(wx,wy)=>({x:wx/workScale+cropOx,y:wy/workScale+cropOy});
+
+  // Classify every candidate BEFORE capping the list, then cap border-zone
+  // (corner/edge whitening) and surface regions separately. Otherwise a
+  // handful of bright interior spots (text, holo highlights) can crowd a
+  // real corner/edge defect out of a single combined top-N cut — backwards
+  // from what matters most for a "raking light" pass over a card.
+  const classified=regions.map(r=>{
+    const nearL=r.cx<=marginL, nearR=(W-1-r.cx)<=marginR;
+    const nearT=r.cy<=marginT, nearB=(H-1-r.cy)<=marginB;
+    let key;
+    if(nearL&&nearT) key='tl'; else if(nearR&&nearT) key='tr';
+    else if(nearL&&nearB) key='bl'; else if(nearR&&nearB) key='br';
+    else if(nearT) key='t'; else if(nearB) key='b';
+    else if(nearL) key='l'; else if(nearR) key='r';
+    else key='s';
+    const isBorder=key!=='s';
+
+    const bw=r.x2-r.x1+1, bh=r.y2-r.y1+1;
+    const aspect=Math.max(bw,bh)/Math.max(1,Math.min(bw,bh));
+    let type;
+    if(isBorder) type='nick'; // Corner/Edge Nick — closest existing vocabulary for border wear
+    else if(aspect>=2.5) type=(r.avgEdge>r.avgHP*1.15)?'scratch':'print';
+    else type='blemish';
+
+    return {...r,key,isBorder,type,bucket:LOC_LABEL[key]};
+  });
+  const borderKept=classified.filter(r=>r.isBorder).sort((a,b)=>b.count-a.count).slice(0,10);
+  const surfaceKept=classified.filter(r=>!r.isBorder).sort((a,b)=>b.count-a.count).slice(0,10);
+  const kept=[...borderKept,...surfaceKept];
+
+  scanRegions=[];
+  saveState();
+  kept.forEach(r=>{
+    const c=toNative(r.cx,r.cy), p1=toNative(r.x1,r.y1), p2=toNative(r.x2,r.y2);
+    const dr=Math.max(6,Math.hypot(p2.x-p1.x,p2.y-p1.y)/2);
+    scanRegions.push({x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,cx:c.x,cy:c.y,bucket:r.bucket,isBorder:r.isBorder});
+    addAutoDefect(c.x,c.y,dr,r.type,r.bucket);
+  });
+  renderDefList();
+
+  setScanProgress(100,`${kept.length} region${kept.length===1?'':'s'} found`);
+  showScanOverlay=true;
+  const ob=document.getElementById('scanOverlayBtn');
+  ob.disabled=kept.length===0; ob.classList.toggle('on',kept.length>0);
+  scanRunning=false;
+  document.getElementById('btnScanDefects').disabled=false;
+  setTimeout(hideScanProgress,1400);
+}
+
+// Overlay boxes for detected regions — drawn on top of the image, toggled
+// independently of re-running the scan. Called from drawCanvas().
+function drawScanOverlay(){
+  if(!showScanOverlay||!scanRegions.length) return;
+  scanRegions.forEach(r=>{
+    const p1=i2c(r.x1,r.y1), p2=i2c(r.x2,r.y2);
+    const x=Math.min(p1.x,p2.x), y=Math.min(p1.y,p2.y);
+    const w=Math.max(6,Math.abs(p2.x-p1.x)), h=Math.max(6,Math.abs(p2.y-p1.y));
+    const col=r.isBorder?DEFCOL:'#E8BA00';
+    ctx.save();
+    ctx.fillStyle=col; ctx.globalAlpha=.16;
+    ctx.fillRect(x-4,y-4,w+8,h+8);
+    ctx.globalAlpha=1; ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    ctx.strokeRect(x-4,y-4,w+8,h+8);
+    ctx.restore();
   });
 }
 
@@ -2524,6 +3197,9 @@ function drawCanvas(){
     });
     ctx.restore();
   }
+
+  // ─ Scan overlay (auto-detected defect regions) ─
+  drawScanOverlay();
 
   // ─ Defect circles ─
   defects.forEach((d,i)=>{
@@ -2914,8 +3590,9 @@ function openReport(){
   const c=activeC2;
   const lrAxis=c.lrHi>=c.tbHi?'L/R':'T/B';
   const defCtrG=ctrGrade.g, defCtrC=gc(defCtrG);
-  const nickCount=defects.filter(d=>d.type==='nick').length;
-  const surfCount=defects.filter(d=>['blemish','scratch','stain','print','crease'].includes(d.type)).length;
+  const confirmedDefects=defects.filter(d=>!d.auto);
+  const nickCount=confirmedDefects.filter(d=>d.type==='nick').length;
+  const surfCount=confirmedDefects.filter(d=>['blemish','scratch','stain','print','crease'].includes(d.type)).length;
   const cornerG=nickCount>=2?8.5:nickCount===1?9:defCtrG;
   const surfG=surfCount>=2?8.5:surfCount===1?9:defCtrG;
   const cornerC=gc(cornerG), surfC=gc(surfG);
@@ -2959,7 +3636,7 @@ function openReport(){
         <tbody>
           ${defects.map((d,i)=>`<tr>
             <td><div class="rpt-def-num">${i+1}</div></td>
-            <td><span class="rpt-def-badge">${DTYPES[d.type]||d.type}</span></td>
+            <td><span class="rpt-def-badge">${DTYPES[d.type]||d.type}</span>${d.auto?' <span style="font-family:var(--font-cd);font-size:8px;font-weight:800;letter-spacing:.08em;color:#9E7B00;">UNCONFIRMED</span>':''}</td>
             <td style="font-size:11px;">${d.note||'—'}</td>
             <td style="font-family:'Barlow Condensed',Arial;font-size:9px;font-weight:700;letter-spacing:.05em;color:#9A9890;">${['nick'].includes(d.type)?'Corners ↓':['blemish','scratch','stain'].includes(d.type)?'Surface ↓':['crease'].includes(d.type)?'Surface ↓↓':'—'}</td>
           </tr>`).join('')}${ceilRow}
@@ -2991,9 +3668,11 @@ function calc2(Ld, sideKey='front') {
 }
 
 function defectCeiling() {
-  // Returns { g, lbl, reason } — lowest grade cap from all marked defects
-  // If no defects, returns null
-  if (!defects.length) return null;
+  // Returns { g, lbl, reason } — lowest grade cap from all CONFIRMED defects.
+  // Auto-detected suggestions are excluded until the user confirms them —
+  // the scan only proposes entries, it must not silently affect grading.
+  const confirmed = defects.filter(d => !d.auto);
+  if (!confirmed.length) return null;
 
   const CAPS = {
     nick:    { 1: {g:9,   lbl:'MINT'},           2: {g:8.5, lbl:'NM-MT+'},  3: {g:8,   lbl:'NM-MT'} },
@@ -3007,7 +3686,7 @@ function defectCeiling() {
 
   // Count defects by type
   const counts = {};
-  defects.forEach(d => { counts[d.type] = (counts[d.type]||0) + 1; });
+  confirmed.forEach(d => { counts[d.type] = (counts[d.type]||0) + 1; });
 
   let lowestG = 10.5; // start above any possible grade
   let lowestCap = null;
@@ -3037,6 +3716,7 @@ function defectCeiling() {
 //  CLEAR SIDE
 // ════════════════════════════════════════════
 function clearSide() {
+  clearScanOverlay();
   // Mark this side as unloaded
   sideData[activeSide] = { loaded: false, img: null, L:{oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0}, defects:[], imgAngle:0 };
   sideData[activeSide+'_origSrc'] = null;
@@ -3080,7 +3760,7 @@ function deactivateUI() {
   document.getElementById('notesSec').style.display='none';
   ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard',
    'gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn',
-   'clearBtn','undoBtn','redoBtn','btnTilt'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
+   'clearBtn','undoBtn','redoBtn','btnTilt','btnScanDefects'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
   renderDefList();
   ctx.clearRect(0,0,canvas.width,canvas.height);
   document.getElementById('cvFoot').textContent='Upload a card image to begin analysis';
@@ -3613,85 +4293,119 @@ function fireConfetti(anchor){
   const sb = document.querySelector('.sb');
   if(!sb) return;
 
-  let startY = 0, startTransform = 0, isDragging = false;
   const isMobile = () => window.innerWidth <= 430;
+  const DETENTS = ['peek','half','full']; // index 0..2, low to high
+  let detentIdx = 0;
 
-  // Backdrop overlay
+  // env(safe-area-inset-*) isn't reliably readable via getComputedStyle on a
+  // custom property directly — the standard workaround is to apply it to a
+  // real layout property on a throwaway probe element and read THAT back.
+  function readSafeAreaBottom(){
+    const probe=document.createElement('div');
+    probe.style.cssText='position:fixed;bottom:0;left:0;height:0;padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;';
+    document.body.appendChild(probe);
+    const v=parseFloat(getComputedStyle(probe).paddingBottom)||0;
+    probe.remove();
+    return v;
+  }
+  const PEEK_PX = 56 + readSafeAreaBottom(); // keep in sync with --peek-h in CSS
+
+  let dragging=false, startY=0, startTY=0, lastY=0, lastT=0, velocity=0;
+
+  // Backdrop overlay — dimmed for half/full, hidden for peek
   const backdrop = document.createElement('div');
   backdrop.className = 'sb-backdrop';
   sb.parentNode.insertBefore(backdrop, sb);
-  backdrop.addEventListener('click', function(){
-    sb.classList.remove('open');
-    backdrop.classList.remove('show');
-  });
+  backdrop.addEventListener('click', () => setDetent(0));
 
-  // Handle area for dragging
+  // Handle area for dragging — see CSS for why this is a full ~52px target
   const handle = document.createElement('div');
   handle.className = 'sb-handle';
-  handle.style.cssText = 'display:none;height:28px;cursor:grab;touch-action:none;flex-shrink:0;';
+  handle.style.cssText = 'display:none;height:52px;cursor:grab;touch-action:none;flex-shrink:0;';
   sb.insertBefore(handle, sb.firstChild);
 
-  function toggleSheet(open){
-    if(open){
-      sb.classList.add('open');
-      backdrop.classList.add('show');
-    } else {
-      sb.classList.remove('open');
-      backdrop.classList.remove('show');
-    }
+  function detentY(i){
+    const h=sb.offsetHeight;
+    if(i===0) return h-PEEK_PX;
+    if(i===1) return Math.max(0,h-window.innerHeight*.5);
+    return 0;
   }
 
-  // Toggle on handle tap
-  handle.addEventListener('click', function(e){
-    if(isDragging) return;
-    toggleSheet(!sb.classList.contains('open'));
+  function setDetent(i){
+    detentIdx=Math.max(0,Math.min(DETENTS.length-1,i));
+    sb.dataset.detent=DETENTS[detentIdx];
+    sb.style.transform='';
+    backdrop.classList.toggle('show', detentIdx>0);
+  }
+
+  // Tap the handle: toggle between peek and half (drag reaches full)
+  handle.addEventListener('click', function(){
+    if(dragging) return;
+    setDetent(detentIdx===0 ? 1 : 0);
   });
 
   handle.addEventListener('touchstart', function(e){
     if(!isMobile()) return;
-    isDragging = false;
-    startY = e.touches[0].clientY;
+    dragging=false;
+    startY=lastY=e.touches[0].clientY;
+    lastT=performance.now();
+    velocity=0;
     const transform = new DOMMatrix(getComputedStyle(sb).transform);
-    startTransform = transform.m42;
+    startTY = transform.m42;
     sb.style.transition = 'none';
   }, {passive:true});
 
   handle.addEventListener('touchmove', function(e){
     if(!isMobile()) return;
-    const dy = e.touches[0].clientY - startY;
-    if(Math.abs(dy) > 5) isDragging = true;
-    const sheetH = sb.offsetHeight;
-    const handleH = 48;
-    const minY = 0;
-    const maxY = sheetH - handleH;
-    const newY = Math.max(minY, Math.min(maxY, startTransform + dy));
+    const y=e.touches[0].clientY;
+    const dy = y - startY;
+    if(Math.abs(dy) > 5) dragging = true;
+    const now=performance.now(), dt=now-lastT;
+    if(dt>0) velocity=(y-lastY)/dt; // px/ms, negative = moving up
+    lastY=y; lastT=now;
+
+    const minY=0, maxY=sb.offsetHeight-PEEK_PX;
+    let newY = startTY + dy;
+    // Gentle rubber-band resistance past full (top) or peek (bottom) —
+    // matches the overscroll bounce of a native sheet instead of a hard stop.
+    if(newY<minY) newY = minY-(minY-newY)*.35;
+    else if(newY>maxY) newY = maxY+(newY-maxY)*.35;
     sb.style.transform = 'translateY(' + newY + 'px)';
     e.preventDefault();
   }, {passive:false});
 
-  handle.addEventListener('touchend', function(e){
+  handle.addEventListener('touchend', function(){
     if(!isMobile()) return;
     sb.style.transition = '';
+    if(!dragging){ sb.style.transform=''; return; }
     const transform = new DOMMatrix(getComputedStyle(sb).transform);
     const currentY = transform.m42;
-    const sheetH = sb.offsetHeight;
-    const threshold = sheetH * 0.4;
-    if(currentY < threshold){
-      toggleSheet(true);
-    } else {
-      toggleSheet(false);
+    const FLICK=0.5; // px/ms — a deliberate flick, not just a slow drag
+    let target;
+    if(velocity < -FLICK) target = detentIdx + (velocity < -1 ? 2 : 1);
+    else if(velocity > FLICK) target = detentIdx - (velocity > 1 ? 2 : 1);
+    else{
+      // Slow drag release — snap to whichever detent is physically nearest
+      let best=0, bestD=Infinity;
+      for(let i=0;i<DETENTS.length;i++){
+        const d=Math.abs(detentY(i)-currentY);
+        if(d<bestD){ bestD=d; best=i; }
+      }
+      target=best;
     }
-    sb.style.transform = '';
+    setDetent(target);
   });
 
   // Show/hide handle based on viewport
   function checkMobile(){
     if(isMobile()){
       handle.style.display = 'block';
-      toggleSheet(false);
+      setDetent(0);
     } else {
       handle.style.display = 'none';
-      toggleSheet(false);
+      sb.removeAttribute('data-detent');
+      sb.style.transform = '';
+      backdrop.classList.remove('show');
     }
   }
   window.addEventListener('resize', checkMobile);
