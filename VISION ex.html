@@ -741,11 +741,16 @@ body{
      a collapsed sheet sitting flush at bottom:0 puts our own drag
      handle right in that zone, fighting the system gesture. The peek
      detent height below is pushed up by env(safe-area-inset-bottom) so
-     the handle always has clearance above it. */
+     the handle always has clearance above it. The "full" detent needs
+     the SAME treatment at the opposite edge: without a top clearance
+     that accounts for env(safe-area-inset-top), the handle ends up right
+     under the notch/Dynamic Island, in the same zone iOS uses for the
+     swipe-down-for-Notification-Center gesture — which is exactly what
+     made the sheet impossible to swipe back down once fully open. */
   .sb{
     --peek-h: calc(56px + env(safe-area-inset-bottom,0px));
     position:fixed;bottom:0;left:0;right:0;
-    width:100%;height:min(90vh, calc(100vh - 40px));z-index:30;
+    width:100%;height:min(90vh, calc(100vh - 44px - env(safe-area-inset-top,0px)));z-index:30;
     transform:translateY(calc(100% - var(--peek-h)));
     transition:transform .35s cubic-bezier(.4,0,.2,1);
     border-top:2px solid var(--yellow);
@@ -1262,10 +1267,54 @@ body{
 let _tWorker = null;
 async function _getTessWorker() {
   if (_tWorker) return _tWorker;
-  const w = await Tesseract.createWorker('eng');
-  await w.setParameters({ tessedit_char_whitelist: '0123456789/' });
-  _tWorker = w;
-  return w;
+  _tWorker = await Tesseract.createWorker('eng');
+  return _tWorker;
+}
+
+// Per-crop Otsu threshold — picks the cutoff that best splits the crop's
+// own histogram into two classes, instead of a single hand-picked constant
+// applied to every card. A fixed constant works for whatever border/ink
+// contrast it was tuned against and silently fails on anything lighter,
+// darker, or more textured; Otsu adapts to each crop while still producing
+// solid filled glyphs (unlike a pixel-local adaptive threshold, which only
+// fires at stroke edges and leaves hollow, unreadable letter outlines).
+function _otsuBinarize(ctx, w, h, invert) {
+  const id = ctx.getImageData(0, 0, w, h);
+  const gray = new Float32Array(w * h);
+  const hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < id.data.length; i += 4, p++) {
+    let v = (id.data[i] + id.data[i+1] + id.data[i+2]) / 3;
+    if (invert) v = 255 - v;
+    gray[p] = v; hist[Math.round(v)]++;
+  }
+  const total = w * h;
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, maxVar = -1, thresh = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (wB === 0) continue;
+    const wF = total - wB; if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > maxVar) { maxVar = v; thresh = t; }
+  }
+  for (let p = 0; p < gray.length; p++) {
+    const v = gray[p] < thresh ? 0 : 255;
+    id.data[p*4] = id.data[p*4+1] = id.data[p*4+2] = v;
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+// Best-effort cleanup of raw OCR text for the name field — OCR on a small
+// stylized-font crop reliably produces a few garbage characters even when
+// it's read the actual name correctly; strip anything that isn't part of a
+// plausible Pokémon card name rather than reject the whole result.
+function _cleanOcrName(raw) {
+  return raw
+    .split('\n')
+    .map(line => line.replace(/[^A-Za-z0-9 '.\-]/g, '').replace(/\s+/g, ' ').trim())
+    .filter(line => (line.match(/[A-Za-z]/g) || []).length >= 3)
+    .sort((a, b) => b.length - a.length)[0] || '';
 }
 
 function _showIdStatus(msg, color) {
@@ -1283,6 +1332,86 @@ function _fillCardFields(card, fallbackNum) {
   document.getElementById('fNum').value = card.number ? card.number + '/' + (card.set.printedTotal || card.set.total || '') : (fallbackNum || '');
 }
 
+// Crop geometries to try for the number, in native-image fractions.
+// Several are kept because the number's position/size shifts across card
+// generations; each is tried at both light-on-dark and dark-on-light
+// polarity since Otsu picks the split point but not which side is "ink".
+const _NUM_PASSES = [
+  { top:.92, bot:.965, right:.30, inv:true,  sc:6 },
+  { top:.92, bot:.965, right:.30, inv:false, sc:6 },
+  { top:.915, bot:.97, right:.40, inv:true,  sc:5 },
+  { top:.915, bot:.97, right:.40, inv:false, sc:5 },
+  { top:.93, bot:.96, right:.25, inv:true,  sc:6 },
+  { top:.88, bot:.98, right:.50, inv:true,  sc:4 },
+];
+// Name banner sits top-left, after the Stage/Basic icon and before the HP
+// box — generous enough to tolerate the layout shifting a bit by set/era.
+const _NAME_PASSES = [
+  { top:.03, bot:.115, left:.11, right:.80, inv:true,  sc:5 },
+  { top:.03, bot:.115, left:.11, right:.80, inv:false, sc:5 },
+];
+// Same region as the number passes — the set-code badge ("PFL EN") sits
+// right next to the number and reads far more reliably, since it's a
+// plain small-caps badge rather than the branded display font used for
+// both the name and (on special-rarity cards) the number itself.
+const _SETCODE_PASSES = [
+  { top:.92, bot:.965, right:.30, inv:true, sc:8 },
+  { top:.915, bot:.97, right:.40, inv:true, sc:6 },
+];
+const _LANG_CODES = ['EN','JP','DE','FR','IT','ES','PT','NL','PL','RU','KO','ZH','CS','ID','TH'];
+
+async function _findSetByPtcgoCode(code) {
+  try {
+    const r = await fetch('https://api.pokemontcg.io/v2/sets?q=ptcgoCode:' + encodeURIComponent(code));
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d.data && d.data[0]) || null;
+  } catch (e) { return null; }
+}
+
+// The set-code badge is plain small-caps text butted right up against the
+// 2-letter language code with no space ("PFL" + "EN" reads as "PFLEN") —
+// try trimming each known language suffix off each candidate token and
+// check the remainder against the API's ptcgoCode field.
+async function _findSetByCode(worker, imageEl, cW, cH, oc) {
+  await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT });
+  const tried = new Set();
+  for (const p of _SETCODE_PASSES) {
+    const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
+    const tokens = text.match(/[A-Z]{2,8}/g) || [];
+    for (const tok of tokens) {
+      // Try every contiguous 2-4 letter substring, not just the whole
+      // token — OCR on this small badge often glues on one stray character
+      // from a neighboring icon or the language code ("PFL"+"EN" reads as
+      // one run, "OPFL" picks up part of the rarity icon), so the real
+      // set code is usually IN the token rather than equal to it.
+      const subs = new Set();
+      for (let len = 2; len <= 4 && len <= tok.length; len++) {
+        for (let i = 0; i + len <= tok.length; i++) subs.add(tok.slice(i, i + len));
+      }
+      for (const code of subs) {
+        if (tried.has(code) || _LANG_CODES.includes(code)) continue;
+        tried.add(code);
+        const set = await _findSetByPtcgoCode(code);
+        if (set) return set;
+      }
+    }
+  }
+  return null;
+}
+
+async function _ocrCrop(worker, imageEl, cW, cH, p, oc) {
+  const x0 = Math.floor(cW * (p.left || 0)), cw = Math.floor(cW * p.right) - x0;
+  const cy = Math.floor(cH * p.top), ch = Math.floor(cH * p.bot) - cy;
+  if (cw < 10 || ch < 5) return '';
+  oc.width = cw * p.sc; oc.height = ch * p.sc;
+  const ctx = oc.getContext('2d');
+  ctx.drawImage(imageEl, x0, cy, cw, ch, 0, 0, oc.width, oc.height);
+  _otsuBinarize(ctx, oc.width, oc.height, p.inv);
+  const { data: { text } } = await worker.recognize(oc);
+  return text;
+}
+
 async function autoIdentifyCard(imageEl) {
   _showIdStatus('IDENTIFYING CARD...', 'wait');
   try {
@@ -1291,59 +1420,120 @@ async function autoIdentifyCard(imageEl) {
     const worker = await _getTessWorker();
     const numRe = /(\d{1,3})\s*\/\s*(\d{1,3})/;
 
-    const passes = [
-      { top:.92, bot:.96, right:.30, inv:true,  th:150, sc:6 },
-      { top:.92, bot:.96, right:.30, inv:false, th:140, sc:6 },
-      { top:.91, bot:.97, right:.40, inv:true,  th:140, sc:5 },
-      { top:.91, bot:.97, right:.40, inv:false, th:130, sc:5 },
-      { top:.93, bot:.96, right:.25, inv:true,  th:160, sc:6 },
-      { top:.88, bot:.98, right:.50, inv:true,  th:140, sc:4 },
-    ];
+    // AUTO's page-layout analysis expects a full "page" and reliably finds
+    // nothing on these small single-region crops; SPARSE_TEXT is built for
+    // exactly this — pull out whatever text is there with no layout guess.
+    await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT, tessedit_char_whitelist: '0123456789/' });
 
     let cardNumber = '', setTotal = 0;
-
-    for (const p of passes) {
-      const cy = Math.floor(cH * p.top), cw = Math.floor(cW * p.right);
-      const ch = Math.floor(cH * p.bot) - cy;
-      if (cw < 10 || ch < 5) continue;
-      oc.width = cw * p.sc; oc.height = ch * p.sc;
-      const ctx = oc.getContext('2d');
-      ctx.drawImage(imageEl, 0, cy, cw, ch, 0, 0, oc.width, oc.height);
-      const id = ctx.getImageData(0, 0, oc.width, oc.height);
-      for (let i = 0; i < id.data.length; i += 4) {
-        let avg = (id.data[i] + id.data[i+1] + id.data[i+2]) / 3;
-        if (p.inv) avg = 255 - avg;
-        id.data[i] = id.data[i+1] = id.data[i+2] = avg < p.th ? 0 : 255;
-      }
-      ctx.putImageData(id, 0, 0);
-      const { data: { text } } = await worker.recognize(oc);
+    // Only numbers from a clean "n/tot"-shaped OCR match are ever trusted
+    // as a candidate — anything looser (e.g. a lone digit run with no
+    // accompanying total) is exactly what produced a confident WRONG
+    // identification in testing (a coincidental low number that also
+    // happened to be a real card in the correct set). Confidently wrong is
+    // worse than admitting the number couldn't be read.
+    const strictCandidates = [];
+    for (const p of _NUM_PASSES) {
+      const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
       const m = text.match(numRe);
       if (m) {
         const n = parseInt(m[1]), tot = parseInt(m[2]);
         if (n >= 1 && n <= 999 && tot >= 10 && tot <= 999 && n <= tot + 100) {
-          cardNumber = n + '/' + tot; setTotal = tot; break;
+          if (!cardNumber) { cardNumber = n + '/' + tot; setTotal = tot; }
+          if (!strictCandidates.some(c => c.n === n && c.tot === tot)) strictCandidates.push({ n, tot });
         }
       }
     }
 
-    if (!cardNumber) {
-      _showIdStatus('COULD NOT READ CARD — TYPE NAME TO SEARCH', 'err');
+    if (cardNumber) {
+      _showIdStatus('FOUND #' + cardNumber + ' — LOOKING UP...', 'wait');
+      const card = await _searchTcgApi(cardNumber.split('/')[0], setTotal);
+      if (card) {
+        _fillCardFields(card, cardNumber);
+        _showIdStatus('IDENTIFIED: ' + card.name + ' — ' + (card.set && card.set.name || ''), 'ok');
+        return;
+      }
+      document.getElementById('fNum').value = cardNumber;
+    }
+
+    // The number wasn't readable (or didn't match anything) — the set-code
+    // badge ("PFL EN") sits right next to it in a plain, non-stylized font
+    // and reads far more reliably. Once the set is pinned down, a number
+    // candidate whose OCR'd total is close to that set's REAL printed
+    // total is a good confirmation; a candidate is otherwise never used
+    // for a specific-card claim, only for the honest partial result below.
+    _showIdStatus('READING SET CODE...', 'wait');
+    const set = await _findSetByCode(worker, imageEl, cW, cH, oc);
+    if (set) {
+      const knownTotal = set.printedTotal || set.total;
+      for (const c of strictCandidates) {
+        if (knownTotal && Math.abs(c.tot - knownTotal) > 3) continue;
+        try {
+          const r = await fetch('https://api.pokemontcg.io/v2/cards?q=set.id:"' + set.id + '"+number:"' + c.n + '"&pageSize=1');
+          if (r.ok) {
+            const d = await r.json();
+            if (d.data && d.data.length) {
+              _fillCardFields(d.data[0], c.n + '/' + knownTotal);
+              _showIdStatus('IDENTIFIED: ' + d.data[0].name + ' — ' + set.name, 'ok');
+              return;
+            }
+          }
+        } catch (e) { /* try next candidate */ }
+      }
+      // Set confirmed but no candidate number matched a card in it — still
+      // a real partial win, so hand it over instead of a flat "couldn't read".
+      document.getElementById('fSet').value = set.name;
+      document.getElementById('fYear').value = (set.releaseDate || '').slice(0, 4);
+      _showIdStatus('SET IDENTIFIED: ' + set.name + ' — TYPE CARD NAME TO FINISH', 'err');
       return;
     }
-    _showIdStatus('FOUND #' + cardNumber + ' — LOOKING UP...', 'wait');
-    const num = cardNumber.split('/')[0];
-    const card = await _searchTcgApi(num, setTotal);
-    if (card) {
-      _fillCardFields(card, cardNumber);
-      _showIdStatus('IDENTIFIED: ' + card.name + ' — ' + (card.set && card.set.name || ''), 'ok');
-    } else {
-      document.getElementById('fNum').value = cardNumber;
+
+    // Set code wasn't readable either — fall back to reading the name
+    // banner directly. It uses the same branded display font as the rest
+    // of the card, so a raw OCR guess is often garbled; showing that
+    // garbage in the field would be worse than an honest "couldn't read
+    // it", so it's only surfaced if it actually matches a real card.
+    await worker.setParameters({ tessedit_char_whitelist: '' });
+    let ocrName = '';
+    for (const p of _NAME_PASSES) {
+      const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
+      ocrName = _cleanOcrName(text);
+      if (ocrName) break;
+    }
+    const verifiedName = ocrName ? await _verifyNameGuess(ocrName) : null;
+
+    if (verifiedName) {
+      const fName = document.getElementById('fName');
+      fName.value = verifiedName;
+      fName.dispatchEvent(new Event('input', { bubbles: true }));
+      _showIdStatus((cardNumber ? 'CARD #' + cardNumber + ' NOT FOUND' : 'COULD NOT READ NUMBER') + ' — GUESSED "' + verifiedName + '", PICK A MATCH BELOW', 'err');
+    } else if (cardNumber) {
       _showIdStatus('CARD #' + cardNumber + ' NOT FOUND — TYPE NAME TO SEARCH', 'err');
+    } else {
+      _showIdStatus('COULD NOT READ CARD — TYPE NAME TO SEARCH', 'err');
     }
   } catch (e) {
     console.error('Auto-ID error:', e);
     _showIdStatus('AUTO-ID FAILED — TYPE NAME TO SEARCH', 'err');
   }
+}
+
+// Confirms an OCR name guess against real card data before it's ever shown
+// to the user — tries the full cleaned string, then just its first word
+// (OCR on a stylized font tends to nail the opening letters and degrade
+// after), and only reports a match if the API actually has a card like it.
+async function _verifyNameGuess(name) {
+  const API = 'https://api.pokemontcg.io/v2';
+  async function tryQuery(q) {
+    if (!q || q.length < 3) return null;
+    try {
+      const r = await fetch(API + '/cards?q=name:"' + encodeURIComponent(q) + '*"&pageSize=1&select=name');
+      if (!r.ok) return null;
+      const d = await r.json();
+      return (d.data && d.data.length) ? q : null;
+    } catch (e) { return null; }
+  }
+  return (await tryQuery(name)) || (await tryQuery(name.split(' ')[0]));
 }
 
 async function _searchTcgApi(num, setTotal) {
@@ -2660,11 +2850,34 @@ async function runDefectScan(){
     for(let b=0;b<BINS;b++){ cum+=hist[b]; if(cum>=target) return (b/BINS)*max; }
     return max;
   }
-  const PIXEL_PCTL=0.99; // top ~1% of brightening values
+  // Corner/edge whitening is the PRIMARY target (per user feedback: "most
+  // importantly highlights the corners and edges, not the artwork"), so it
+  // keeps a lenient bar. The interior is full of legitimate bright content
+  // — white attack-name text, energy-cost icons, holo highlights — that
+  // reads statistically identical to a real bright defect (confirmed by
+  // testing: false-positive text regions and genuine border defects had
+  // near-identical average brightening once dilation is factored in), so
+  // brightness alone can't tell them apart there. The only lever left is
+  // rarity: require interior hits to be far more extreme than border ones.
+  const PIXEL_PCTL=0.99;         // top ~1% — border/edge zone
+  const PIXEL_PCTL_SURFACE=0.999; // top ~0.1% — interior, deliberately much stricter
   const hpThresh=percentileThreshold(brightSpike,PIXEL_PCTL);
+  const hpThreshSurface=percentileThreshold(brightSpike,PIXEL_PCTL_SURFACE);
+
+  // Same border margins the classification step below uses, computed here
+  // too so the threshold itself can already be location-aware per pixel.
+  const _lB=L.iL-L.oL, _rB=L.oR-L.iR, _tB=L.iT-L.oT, _bB=L.oB-L.iB;
+  const _marginL=Math.max(4,_lB*workScale), _marginR=Math.max(4,_rB*workScale);
+  const _marginT=Math.max(4,_tB*workScale), _marginB=Math.max(4,_bB*workScale);
+
   const flaggedRaw=new Uint8Array(W*H);
-  for(let i=0;i<W*H;i++){
-    if(brightSpike[i]>hpThresh) flaggedRaw[i]=1;
+  for(let y=0;y<H;y++){
+    const nearTB=y<=_marginT || (H-1-y)<=_marginB;
+    for(let x=0;x<W;x++){
+      const idx=y*W+x;
+      const isBorderPx = nearTB || x<=_marginL || (W-1-x)<=_marginR;
+      if(brightSpike[idx] > (isBorderPx?hpThresh:hpThreshSurface)) flaggedRaw[idx]=1;
+    }
   }
 
   // A high-pass response only lives at the BOUNDARY of a whitened/worn
