@@ -1380,13 +1380,18 @@ async function _findSetByCode(worker, imageEl, cW, cH, oc) {
     const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
     const tokens = text.match(/[A-Z]{2,8}/g) || [];
     for (const tok of tokens) {
-      // Try every contiguous 2-4 letter substring, not just the whole
+      // Try every contiguous 3-4 letter substring, not just the whole
       // token — OCR on this small badge often glues on one stray character
       // from a neighboring icon or the language code ("PFL"+"EN" reads as
       // one run, "OPFL" picks up part of the rarity icon), so the real
-      // set code is usually IN the token rather than equal to it.
+      // set code is usually IN the token rather than equal to it. 2-letter
+      // substrings are deliberately excluded — confirmed by testing that
+      // one is far too likely to coincidentally match some unrelated
+      // vintage set's code (e.g. "DR" out of "DRI" hit a real 2003 set)
+      // just by chance; every current-era code observed so far is 3
+      // letters, so anything shorter isn't worth the false-match risk.
       const subs = new Set();
-      for (let len = 2; len <= 4 && len <= tok.length; len++) {
+      for (let len = 3; len <= 4 && len <= tok.length; len++) {
         for (let i = 0; i + len <= tok.length; i++) subs.add(tok.slice(i, i + len));
       }
       for (const code of subs) {
@@ -2189,7 +2194,7 @@ function runAuto() {
   // a gradual ramp in the profile, while the real outer-card or
   // border-to-content edge is a spike, so this keeps landing on the true
   // edge instead of the shadow that precedes it.
-  function scanEdge(lines, refColor, i0, i1, axisIsX, step, minJump){
+  function scanEdge(lines, refColor, i0, i1, axisIsX, step, minJump, minLevel){
     const dir=i1>=i0?1:-1, n=Math.abs(i1-i0);
     if(n<step+1) return null;
     const prof=[];
@@ -2213,10 +2218,36 @@ function runAuto() {
     // being a real edge, so a candidate jump must also be SUSTAINED —
     // the elevated level has to hold for several more samples, not
     // immediately fall back — before it's accepted.
+    // A "sustained jump" alone isn't enough on a card whose content sits
+    // right up against a border in a similarly dark, low-contrast color, OR
+    // whose border has its own decorative elements (a name-plate swoosh,
+    // foil pattern) that produce real but IRRELEVANT bumps — confirmed by
+    // testing on a real card whose whole profile was just a series of
+    // unrelated bumps (a swoosh graphic, then title text further in) with
+    // the TRUE edge sitting at one of the *weakest* points in the entire
+    // window. No fixed bar can single that out, because the false bumps
+    // were themselves stronger than a normal true edge elsewhere. What
+    // does generalize: how far a candidate stands out from THIS profile's
+    // own typical (median) level — a real edge is a sharp outlier against
+    // its local backdrop, not just absolutely bright. A candidate needs
+    // both a fixed floor (rejects uniformly-weak profiles outright) and a
+    // multiple of the profile's own median (rejects "busy" profiles where
+    // several unrelated bumps all clear the fixed floor) before it beats
+    // the reference-percentage default.
+    // This whole floor is opt-in (minLevel only set by inner-edge callers)
+    // — the outer background→card search has no such ambiguity problem and
+    // must stay on just minJump, or a genuinely clean, correct transition
+    // there gets rejected too.
+    let effMinLevel=0;
+    if(minLevel){
+      const sorted=[...sm].sort((a,b)=>a-b), median=sorted[sorted.length>>1]||1;
+      effMinLevel=Math.max(minLevel, median*4.5);
+    }
     const CONFIRM=6;
     for(let k=step;k<sm.length;k++){
       const grad=sm[k]-sm[k-step];
       if(grad<minJump) continue;
+      if(effMinLevel && sm[k]<effMinLevel) continue;
       const need=Math.min(CONFIRM,sm.length-1-k);
       if(need<2) return i0+k*dir; // too close to the window edge to confirm further — accept
       let sustained=0;
@@ -2261,13 +2292,14 @@ function runAuto() {
   //     true edge before the scan ever reaches it.
   const ref=INNER_REF[activeSide]||INNER_REF.front;
   const cFW=oRx-oLx, cFH=oBy-oTy;
-  const iL=scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22)
+  const INNER_MIN_LEVEL=65; // absolute confidence floor — see scanEdge comment above
+  const iL=scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22,INNER_MIN_LEVEL)
     ?? (oLx+cFW*ref.L/100);
-  const iR=scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22)
+  const iR=scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22,INNER_MIN_LEVEL)
     ?? (oRx-cFW*ref.R/100);
-  const iT=scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22)
+  const iT=scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22,INNER_MIN_LEVEL)
     ?? (oTy+cFH*ref.T/100);
-  const iB=scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22)
+  const iB=scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
     ?? (oBy-cFH*ref.B/100);
 
   const g=.005*W, IW=img.width, IH=img.height, sx=IW/W, sy=IH/H;
