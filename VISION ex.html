@@ -1100,7 +1100,7 @@ body{
     <!-- Group 3: Line measurement -->
     <div class="tb-group" data-group="measure">
       <button class="tb-btn" id="autoBtn" onclick="triggerAutoDetect()" disabled>Auto-Detect</button>
-      <button class="tb-btn" id="btnTilt" onclick="setMode(mode==='tilt'?'lines':'tilt')"     disabled title="Rotate inner border lines to match a crooked print">Tilt</button>
+      <button class="tb-btn" id="btnTilt" onclick="setMode(mode==='tilt'?'lines':'tilt')"     disabled title="Rotate any border line (inner or outer) to match a crooked print">Tilt</button>
       <div class="str-ctrl" id="tiltCtrl">
         <span id="tiltLineLbl" style="font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--label);white-space:nowrap;padding:0 2px;">Click a border to select</span>
         <input class="str-slider" id="tiltSlider" type="range" min="-5" max="5" step="0.01" value="0" disabled
@@ -1645,7 +1645,7 @@ const CARD_INNER_CORNER_MM = 1.06; // front only — back inner border has right
 // n=2 samples (Pikachu TEF 051, Togekiss ASC 235); update as dataset grows.
 const INNER_REF = {
   front: { L:3.81, R:3.95, T:2.86, B:2.73 },  // avg border as % of card width/height
-  back:  { L:4.80, R:5.12, T:3.96, B:3.94 }   // back blue border is wider + rectangular
+  back:  { L:5.23, R:4.72, T:4.71, B:3.56 }   // back border — calibrated from a manually-verified 1200 DPI scan
 };
 const GCOL    = { 10:'#00897B', 9:'#2E9E6A', 8:'#9E7B00', 7:'#9E2000', 6:'#9E0000' };
 const DTYPES  = {
@@ -1665,10 +1665,16 @@ let img=null, loaded=false, zoom=1, panX=0, panY=0;
 let bS=1, bOX=0, bOY=0;
 let rafId=null, mode='lines';
 let L = { oL:0,oR:0,oT:0,oB:0, iL:0,iR:0,iT:0,iB:0 };
+// Per-line lock — a locked line is frozen against both manual dragging and
+// being overwritten by the next Auto-Detect run. Right-click (long-press on
+// mobile) a line to toggle it; see the LINE LOCKING section below.
+let lineLocks = { oL:false,oR:false,oT:false,oB:false, iL:false,iR:false,iT:false,iB:false };
+let lastAutoL = null; // L immediately after the last Auto-Detect run, for the lock-time learning comparison
 let imgAngle=0;
 let showOverlayGrid=false, imgLocked=false, showCL=true, showReg=true;
 let cropRect=null, cropDrag=null;
 let dragging=null, panStart=null, hoverLn=null;
+let longPressTimer=null, longPressId=null, longPressStart=null; // mobile long-press-to-lock
 let defects=[], defSeq=0;
 let drawing=null, draggingDefect=null, hoverDefect=null;
 let mouseX=-1, mouseY=-1;
@@ -1718,7 +1724,7 @@ function cvPt(e) {
 //  UNDO / REDO
 // ════════════════════════════════════════════
 function saveState() {
-  history.push({ L:{...L}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
+  history.push({ L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
   if(history.length>MAX_HIST) history.shift();
   redoStack.length=0;
   document.getElementById('undoBtn').disabled=false;
@@ -1727,7 +1733,7 @@ function saveState() {
 
 function undo() {
   if(!history.length) return;
-  redoStack.push({ L:{...L}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
+  redoStack.push({ L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
   const s=history.pop();
   applyHistState(s);
   document.getElementById('undoBtn').disabled=history.length===0;
@@ -1736,7 +1742,7 @@ function undo() {
 
 function redo() {
   if(!redoStack.length) return;
-  history.push({ L:{...L}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
+  history.push({ L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})), angle:imgAngle, img:img });
   const s=redoStack.pop();
   applyHistState(s);
   document.getElementById('undoBtn').disabled=false;
@@ -1750,6 +1756,7 @@ function applyHistState(s) {
     setupCanvas(); // recalculate viewport scale for restored image dimensions
   }
   L={...s.L};
+  if(s.locks) lineLocks={...s.locks};
   defects=s.defects.map(d=>({...d}));
   imgAngle=s.angle;
   const sl=document.getElementById('strSlider'); if(sl) sl.value=imgAngle;
@@ -1813,7 +1820,7 @@ function calc() {
 function switchSide(side) {
   if(side===activeSide) return;
   // Save current side state
-  sideData[activeSide]={ L:{...L}, defects:defects.map(d=>({...d})), imgAngle, img, loaded };
+  sideData[activeSide]={ L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})), imgAngle, img, loaded };
   activeSide=side;
   document.getElementById('sideF').classList.toggle('on',side==='front');
   document.getElementById('sideB').classList.toggle('on',side==='back');
@@ -1822,13 +1829,15 @@ function switchSide(side) {
   const saved=sideData[side];
   clearScanOverlay();
   if(saved&&saved.loaded){
-    L={...saved.L}; defects=saved.defects.map(d=>({...d}));
+    L={...saved.L}; lineLocks=saved.locks?{...saved.locks}:{oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
+    defects=saved.defects.map(d=>({...d}));
     imgAngle=saved.imgAngle||0; img=saved.img; loaded=saved.loaded;
     setTilt && _syncTiltUI();
     setupCanvas(); setAngle(imgAngle); renderDefList();
   } else {
     img=null; loaded=false; defects=[]; imgAngle=0;
-    L={oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0,iLa:0,iRa:0,iTa:0,iBa:0};
+    L={oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0,oLa:0,oRa:0,oTa:0,oBa:0,iLa:0,iRa:0,iTa:0,iBa:0};
+    lineLocks={oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
     document.getElementById('dropOv').classList.remove('hidden');
     document.getElementById('scorePH').style.display='block';
     document.getElementById('scoresWrap').style.display='none';
@@ -1900,7 +1909,8 @@ function setupCanvas() {
 function initLines() {
   const W=img.width, H=img.height;
   L={oL:W*.04,oR:W*.96,oT:H*.03,oB:H*.97,iL:W*.13,iR:W*.87,iT:H*.10,iB:H*.90,
-     iLa:0,iRa:0,iTa:0,iBa:0};
+     oLa:0,oRa:0,oTa:0,oBa:0,iLa:0,iRa:0,iTa:0,iBa:0};
+  lineLocks={oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
 }
 
 function activateUI() {
@@ -1981,9 +1991,10 @@ function updateToolbar(m){
 }
 
 // ════════════════════════════════════════════
-//  TILT — per-line inner border rotation
+//  TILT — per-line border rotation (inner or outer)
 // ════════════════════════════════════════════
-const TILT_NAMES = {iL:'Left border',iR:'Right border',iT:'Top border',iB:'Bottom border'};
+const TILT_NAMES = {oL:'Outer left edge',oR:'Outer right edge',oT:'Outer top edge',oB:'Outer bottom edge',
+                     iL:'Left border',iR:'Right border',iT:'Top border',iB:'Bottom border'};
 
 function setTilt(deg) {
   if(!L || !tiltTarget) return;
@@ -2006,7 +2017,11 @@ function _syncTiltUI() {
   const ll=document.getElementById('tiltLineLbl');
   if(ll){
     ll.textContent=tiltTarget ? TILT_NAMES[tiltTarget] : 'Click a border to select';
-    ll.style.color=tiltTarget ? ((['iL','iR'].includes(tiltTarget)) ? '#00a850' : '#c0397a') : 'var(--label)';
+    ll.style.color=tiltTarget
+      ? (['iL','iR'].includes(tiltTarget) ? '#00a850'
+        : ['iT','iB'].includes(tiltTarget) ? '#c0397a'
+        : 'var(--label)')
+      : 'var(--label)';
   }
 }
 
@@ -2166,6 +2181,51 @@ function setAngle(deg){
 function nudgeAngle(d){ saveState(); setAngle(imgAngle+d); }
 
 // ════════════════════════════════════════════
+//  AUTO-DETECT CALIBRATION — learns from user corrections
+// ════════════════════════════════════════════
+// INNER_REF started as a hardcoded "n=2 samples" empirical prior. Every time
+// a user locks an inner line, that's a deliberate "this position is correct"
+// signal — recorded here as a running per-side, per-line average, persisted
+// in localStorage so it keeps growing across sessions on this device. Future
+// Auto-Detect runs blend this learned average with the original hardcoded
+// prior (so one odd correction can't swing the reference on its own) and use
+// it both as the inner-edge search-window anchor and as the fallback default
+// when no confident edge is found — exactly the two places INNER_REF already
+// fed into, just fed by real usage instead of a fixed table.
+const REF_PRIOR_WEIGHT = 2; // treat the hardcoded INNER_REF entry as this many "virtual" prior samples
+
+function _loadLearnedRef(){
+  try{ return JSON.parse(localStorage.getItem('vex-learned-ref'))||{}; }
+  catch(e){ return {}; }
+}
+function _saveLearnedRef(data){
+  try{ localStorage.setItem('vex-learned-ref', JSON.stringify(data)); }
+  catch(e){ /* storage unavailable/full — learning just won't persist this time */ }
+}
+function getEffectiveRef(side){
+  const base=INNER_REF[side]||INNER_REF.front;
+  const learned=_loadLearnedRef()[side];
+  const out={...base};
+  if(learned){
+    for(const k of ['L','R','T','B']){
+      const s=learned[k];
+      if(s && s.count>0) out[k]=(base[k]*REF_PRIOR_WEIGHT + s.sum)/(REF_PRIOR_WEIGHT + s.count);
+    }
+  }
+  return out;
+}
+function recordLineCorrection(side,key,pct){
+  if(!isFinite(pct)) return null;
+  const learned=_loadLearnedRef();
+  if(!learned[side]) learned[side]={};
+  if(!learned[side][key]) learned[side][key]={sum:0,count:0};
+  learned[side][key].sum+=pct;
+  learned[side][key].count+=1;
+  _saveLearnedRef(learned);
+  return learned[side][key];
+}
+
+// ════════════════════════════════════════════
 //  AUTO-DETECT
 // ════════════════════════════════════════════
 function triggerAutoDetect(){ if(!loaded) return; saveState(); scanProg=0; }
@@ -2174,6 +2234,7 @@ function runAuto() {
   if(!loaded) return;
   const TMP=document.createElement('canvas');
   const W=Math.min(img.width,900), H=Math.round(W*img.height/img.width);
+  const wsx=W/img.width, wsy=H/img.height; // native image space -> this working-canvas space
   TMP.width=W; TMP.height=H;
   const tc=TMP.getContext('2d'); tc.drawImage(img,0,0,W,H);
   const px=tc.getImageData(0,0,W,H).data;
@@ -2263,10 +2324,15 @@ function runAuto() {
   //     with a higher bar is needed or the "first jump" match fires
   //     partway up the ramp instead of waiting for the real, much sharper
   //     jump into the card itself.
-  const oLx=scanEdge(sY,bg,0,Math.round(W*.42),true,4,32) ?? Math.round(W*.04);
-  const oRx=scanEdge(sY,bg,W-1,Math.round(W*.58),true,4,32) ?? Math.round(W*.96);
-  const oTy=scanEdge(sX,bg,0,Math.round(H*.42),false,4,32) ?? Math.round(H*.03);
-  const oBy=scanEdge(sX,bg,H-1,Math.round(H*.58),false,4,32) ?? Math.round(H*.97);
+  //     A locked line is skipped entirely and its current (user-confirmed)
+  //     position is reused instead — Auto-Detect must never move it, and
+  //     everything downstream (border-color ring, inner-edge windows) needs
+  //     to anchor on the REAL edge, not a freshly re-detected one that could
+  //     drift from what the user locked in.
+  const oLx=lineLocks.oL ? L.oL*wsx : (scanEdge(sY,bg,0,Math.round(W*.42),true,4,32) ?? Math.round(W*.04));
+  const oRx=lineLocks.oR ? L.oR*wsx : (scanEdge(sY,bg,W-1,Math.round(W*.58),true,4,32) ?? Math.round(W*.96));
+  const oTy=lineLocks.oT ? L.oT*wsy : (scanEdge(sX,bg,0,Math.round(H*.42),false,4,32) ?? Math.round(H*.03));
+  const oBy=lineLocks.oB ? L.oB*wsy : (scanEdge(sX,bg,H-1,Math.round(H*.58),false,4,32) ?? Math.round(H*.97));
 
   // 2 ─ Border color reference: MEDIAN over many points ringing all 4
   //     sides, inset well past the outer edge (not just a few px) so the
@@ -2290,17 +2356,17 @@ function runAuto() {
   //     couple of cards, and special/textured-foil borders (e.g. "ex"
   //     rarities) run noticeably thicker, so a narrow window can clip the
   //     true edge before the scan ever reaches it.
-  const ref=INNER_REF[activeSide]||INNER_REF.front;
+  const ref=getEffectiveRef(activeSide);
   const cFW=oRx-oLx, cFH=oBy-oTy;
   const INNER_MIN_LEVEL=65; // absolute confidence floor — see scanEdge comment above
-  const iL=scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22,INNER_MIN_LEVEL)
-    ?? (oLx+cFW*ref.L/100);
-  const iR=scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22,INNER_MIN_LEVEL)
-    ?? (oRx-cFW*ref.R/100);
-  const iT=scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22,INNER_MIN_LEVEL)
-    ?? (oTy+cFH*ref.T/100);
-  const iB=scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
-    ?? (oBy-cFH*ref.B/100);
+  const iL=lineLocks.iL ? L.iL*wsx : (scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22,INNER_MIN_LEVEL)
+    ?? (oLx+cFW*ref.L/100));
+  const iR=lineLocks.iR ? L.iR*wsx : (scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22,INNER_MIN_LEVEL)
+    ?? (oRx-cFW*ref.R/100));
+  const iT=lineLocks.iT ? L.iT*wsy : (scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22,INNER_MIN_LEVEL)
+    ?? (oTy+cFH*ref.T/100));
+  const iB=lineLocks.iB ? L.iB*wsy : (scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
+    ?? (oBy-cFH*ref.B/100));
 
   const g=.005*W, IW=img.width, IH=img.height, sx=IW/W, sy=IH/H;
   L={
@@ -2309,6 +2375,7 @@ function runAuto() {
     iL:cl(iL,oLx+g,W*.48)*sx, iR:cl(iR,W*.52,oRx-g)*sx,
     iT:cl(iT,oTy+g,H*.48)*sy, iB:cl(iB,H*.52,oBy-g)*sy,
   };
+  lastAutoL={...L};
 }
 
 function resetLines(){
@@ -2399,6 +2466,7 @@ function hitTest(cx,cy) {
 //  MOVE LINE — PSA snap on Shift
 // ════════════════════════════════════════════
 function moveLine(id,cx,cy) {
+  if(lineLocks[id]) return;
   const ip=c2i(cx,cy);
   const IW=img.width,IH=img.height;
   if(id==='oL') L.oL=cl(ip.x,0,L.iL-GAP);
@@ -2536,12 +2604,11 @@ canvas.addEventListener('mousemove',e=>{
     canvas.style.cursor=hoverDefect?'grab':'crosshair'; return;
   }
 
-  if(mode==='straighten'||mode==='tilt'){ 
-    // In tilt mode: hover inner lines to show they're clickable
+  if(mode==='straighten'||mode==='tilt'){
+    // In tilt mode: hover any border (inner or outer) to show it's clickable
     if(mode==='tilt'){
       const h=hitTest(x,y);
-      const isInner=h&&['iL','iR','iT','iB'].includes(h.id);
-      canvas.style.cursor=isInner?'pointer':'default';
+      canvas.style.cursor=h?'pointer':'default';
     } else {
       canvas.style.cursor='default';
     }
@@ -2551,10 +2618,48 @@ canvas.addEventListener('mousemove',e=>{
   // Hover detection for standard lines
   if(mode!=='defect'&&mode!=='crop'){
     const h=hitTest(x,y); hoverLn=h?h.id:null;
-    if(h){ canvas.style.cursor=h.isVert?'ew-resize':'ns-resize'; return; }
+    if(h){ canvas.style.cursor=lineLocks[h.id]?'not-allowed':(h.isVert?'ew-resize':'ns-resize'); return; }
   }
   canvas.style.cursor=imgLocked?'default':'grab';
 });
+
+// ════════════════════════════════════════════
+//  LINE LOCKING — freezes a line against dragging and Auto-Detect overwrites.
+//  Toggled by right-click (desktop) or long-press (mobile). Locking an inner
+//  line captures its final position as a training sample for getEffectiveRef().
+// ════════════════════════════════════════════
+const LOCK_PCT_KEY={iL:'L',iR:'R',iT:'T',iB:'B'};
+function flashFoot(msg){
+  const el=document.getElementById('cvFoot');
+  if(!el) return;
+  el.textContent=msg;
+  clearTimeout(flashFoot._t);
+  flashFoot._t=setTimeout(setFoot,1600);
+}
+function toggleLineLock(id){
+  if(!loaded||!(id in lineLocks)) return;
+  saveState();
+  lineLocks[id]=!lineLocks[id];
+  const names={oL:'Outer L',oR:'Outer R',oT:'Outer T',oB:'Outer B',iL:'Inner L',iR:'Inner R',iT:'Inner T',iB:'Inner B'};
+  if(lineLocks[id]){
+    const key=LOCK_PCT_KEY[id];
+    let learned=false;
+    if(key){
+      const cFW=L.oR-L.oL, cFH=L.oB-L.oT;
+      let pct;
+      if(key==='L') pct=(L.iL-L.oL)/cFW*100;
+      else if(key==='R') pct=(L.oR-L.iR)/cFW*100;
+      else if(key==='T') pct=(L.iT-L.oT)/cFH*100;
+      else pct=(L.oB-L.iB)/cFH*100;
+      recordLineCorrection(activeSide,key,pct);
+      learned=true;
+    }
+    flashFoot('🔒 '+names[id]+' locked'+(learned?' · learning updated':''));
+  } else {
+    flashFoot('🔓 '+names[id]+' unlocked');
+  }
+  drawCanvas();
+}
 
 canvas.addEventListener('mousedown',e=>{
   if(!loaded) return;
@@ -2576,9 +2681,9 @@ canvas.addEventListener('mousedown',e=>{
   }
 
   if(mode==='tilt'){
-    // Click inner line to select it; pan otherwise
+    // Click any border (inner or outer) to select it; pan otherwise
     const h=hitTest(x,y);
-    if(h && ['iL','iR','iT','iB'].includes(h.id)){
+    if(h){
       selectTiltTarget(h.id);
     } else if(!imgLocked){
       dragging='pan'; panStart={x,y};
@@ -2591,7 +2696,7 @@ canvas.addEventListener('mousedown',e=>{
 
   if(mode!=='defect'&&mode!=='crop'){
     const h=hitTest(x,y);
-    if(h){ saveState(); dragging=h.id; return; }
+    if(h){ if(!lineLocks[h.id]){ saveState(); dragging=h.id; } return; }
   }
   if(!imgLocked){ dragging='pan'; panStart={x,y}; canvas.style.cursor='grabbing'; }
 });
@@ -2628,7 +2733,12 @@ canvas.addEventListener('contextmenu',e=>{
     const{x,y}=cvPt(e);
     const hit=defectAtPoint(x,y);
     if(hit) removeDefect(hit.id);
+    return;
   }
+  if(mode==='crop') return;
+  const{x,y}=cvPt(e);
+  const h=hitTest(x,y);
+  if(h) toggleLineLock(h.id);
 });
 
 // Touch
@@ -2648,6 +2758,9 @@ canvas.addEventListener('touchmove',e=>{
     lastPinchDist=dist;return;
   }
   const{x,y}=cvPt(e);
+  if(longPressTimer&&longPressStart&&Math.hypot(x-longPressStart.x,y-longPressStart.y)>8){
+    clearTimeout(longPressTimer);longPressTimer=null;
+  }
   if(mode==='defect'){
     if(draggingDefect){const ip=c2i(x,y);draggingDefect.cx=ip.x;draggingDefect.cy=ip.y;return;}
     if(drawing){const ip=c2i(x,y);drawing.ex=ip.x;drawing.ey=ip.y;return;}
@@ -2662,10 +2775,19 @@ canvas.addEventListener('touchstart',e=>{
   const{x,y}=cvPt(e);
   if(mode==='defect'){const hit=defectAtPoint(x,y);if(hit){saveState();draggingDefect=hit;}else{const ip=c2i(x,y);drawing={cx:ip.x,cy:ip.y,ex:ip.x,ey:ip.y};}return;}
   const h=hitTest(x,y);
-  if(h){saveState();dragging=h.id;}else{dragging='pan';panStart={x,y};}
+  if(h){
+    longPressId=h.id; longPressStart={x,y};
+    clearTimeout(longPressTimer);
+    longPressTimer=setTimeout(()=>{
+      toggleLineLock(longPressId);
+      longPressTimer=null; dragging=null;
+    },550);
+    if(!lineLocks[h.id]){ saveState(); dragging=h.id; }
+  }else{dragging='pan';panStart={x,y};}
 },{passive:false});
 
 canvas.addEventListener('touchend',e=>{
+  if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
   if(e.touches.length<2) lastPinchDist=null;
   if(mode==='defect'){
     if(draggingDefect){draggingDefect=null;return;}
@@ -3068,8 +3190,8 @@ function setFoot(){
   if(mode==='straighten') el.innerHTML='<span class="fc">Straighten mode</span><span class="fd">—</span>Drag slider or use − / + for 0.01° precision · ↺ resets to 0°';
   else if(mode==='crop') el.innerHTML='<span class="fc">Crop mode</span><span class="fd">—</span>Click and drag to draw a crop region · Apply to bake';
   else if(mode==='defect') el.innerHTML='<span style="color:var(--defcol);font-weight:700">Defect mode</span><span class="fd">—</span>Draw circles around defects · Drag to move · Right-click to remove';
-  else if(mode==='tilt') el.innerHTML='<span class="fc">Tilt mode</span><span class="fd">—</span>Drag slider or use − / + for 0.01° precision · Rotates inner border lines as a unit · ↺ resets to 0°';
-  else el.innerHTML='<span class="fc">Blue lines</span><span class="fd">—</span>L/R borders<span class="fd">&nbsp;·&nbsp;</span><span class="mc">Magenta lines</span><span class="fd">—</span>T/B borders<span class="fd">&nbsp;·&nbsp;</span>Scroll to zoom · Drag to pan<span class="fd">&nbsp;·&nbsp;</span>Shift+drag snaps to PSA ratios<span class="fd">&nbsp;·&nbsp;</span>Alt for loupe';
+  else if(mode==='tilt') el.innerHTML='<span class="fc">Tilt mode</span><span class="fd">—</span>Click any border, inner or outer, then drag slider or use − / + for 0.01° precision · Rotates that line only · ↺ resets to 0°';
+  else el.innerHTML='<span class="fc">Blue lines</span><span class="fd">—</span>L/R borders<span class="fd">&nbsp;·&nbsp;</span><span class="mc">Magenta lines</span><span class="fd">—</span>T/B borders<span class="fd">&nbsp;·&nbsp;</span>Scroll to zoom · Drag to pan<span class="fd">&nbsp;·&nbsp;</span>Shift+drag snaps to PSA ratios<span class="fd">&nbsp;·&nbsp;</span>Alt for loupe<span class="fd">&nbsp;·&nbsp;</span>Right-click (long-press) a line to lock it';
 }
 
 // ════════════════════════════════════════════
@@ -3324,20 +3446,42 @@ function drawCanvas(){
     if(dash&&!hot) ctx.setLineDash(MOB?[10,7]:[7,5]);
     ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();
   }
-  function knob(x,y,col,hot){
+  function knob(x,y,col,hot,locked){
     const r=hot?(MOB?14:8):(MOB?10:5);
     ctx.save();
-    if(hot){
+    if(locked){
+      ctx.fillStyle='#f5c518';ctx.strokeStyle='#8a6d00';ctx.lineWidth=2;
+      ctx.shadowColor='rgba(0,0,0,0.25)';ctx.shadowBlur=6;
+    } else if(hot){
       ctx.fillStyle='rgba(255,255,255,0.65)';ctx.strokeStyle=col;ctx.lineWidth=2.5;
       ctx.shadowColor='rgba(0,0,0,0.18)';ctx.shadowBlur=14;
     } else {
       ctx.fillStyle='#fff';ctx.strokeStyle=col;ctx.lineWidth=2;
       ctx.shadowColor=col;ctx.shadowBlur=5;
     }
-    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore();
+    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.stroke();
+    if(locked){
+      ctx.font=Math.round(r*1.3)+'px sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('🔒',x,y+0.5);
+    }
+    ctx.restore();
   }
   const isH=id=>hoverLn===id||dragging===id;
+  // A selected line in Tilt mode is always rendered "hot" (highlighted)
+  const isSel=id=>mode==='tilt'&&tiltTarget===id;
   const midY=(oTy+oBy)/2, midX=(oLx+oRx)/2;
+
+  function tiltedV(px,py,col,hot,angleDeg){
+    const tanT=Math.tan((angleDeg||0)*Math.PI/180);
+    const x1=px-(py-RS)*tanT, x2=px+(CH-py)*tanT;
+    line(x1,RS,x2,CH,col,hot,true);
+  }
+  function tiltedH(px,py,col,hot,angleDeg){
+    const tanT=Math.tan((angleDeg||0)*Math.PI/180);
+    const y1=py-(px-RS)*tanT, y2=py+(CW-px)*tanT;
+    line(RS,y1,CW,y2,col,hot,true);
+  }
 
   // Corner radii in canvas pixels (scale from mm via pixels-per-mm)
   const pmH=(oRx-oLx)/CARD_W_MM;
@@ -3345,12 +3489,12 @@ function drawCanvas(){
   // Back inner border has right-angle corners; only front uses the rounded radius
   const innerCR = (activeSide==='back' ? 0 : CARD_INNER_CORNER_MM) * pmH;
 
-  // Outer dashed (card edges) — always visible
+  // Outer dashed (card edges) — always visible; each has its own tilt angle (oLa/oRa/oTa/oBa)
   const outerCol=MOB?'rgba(255,255,255,.85)':THEME.cardLine;
-  line(oLx,0,oLx,CH,outerCol,isH('oL'),true); knob(oLx,midY,outerCol,isH('oL'));
-  line(oRx,0,oRx,CH,outerCol,isH('oR'),true); knob(oRx,midY,outerCol,isH('oR'));
-  line(0,oTy,CW,oTy,outerCol,isH('oT'),true); knob(midX,oTy,outerCol,isH('oT'));
-  line(0,oBy,CW,oBy,outerCol,isH('oB'),true); knob(midX,oBy,outerCol,isH('oB'));
+  tiltedV(oLx,midY,outerCol,isH('oL')||isSel('oL'), L.oLa||0); knob(oLx,midY,outerCol,isH('oL')||isSel('oL'),lineLocks.oL);
+  tiltedV(oRx,midY,outerCol,isH('oR')||isSel('oR'), L.oRa||0); knob(oRx,midY,outerCol,isH('oR')||isSel('oR'),lineLocks.oR);
+  tiltedH(midX,oTy,outerCol,isH('oT')||isSel('oT'), L.oTa||0); knob(midX,oTy,outerCol,isH('oT')||isSel('oT'),lineLocks.oT);
+  tiltedH(midX,oBy,outerCol,isH('oB')||isSel('oB'), L.oBa||0); knob(midX,oBy,outerCol,isH('oB')||isSel('oB'),lineLocks.oB);
 
   // Outer card rounded-corner arcs — show physical card rounding at each corner
   if(outerCR>2){
@@ -3370,30 +3514,20 @@ function drawCanvas(){
 
   // Inner lines — each has its own tilt angle (iLa/iRa/iTa/iBa)
   if(mode!=='crop'){
-    const CW=canvas.width, CH=canvas.height;
-    // A selected line in Tilt mode is always rendered "hot" (highlighted)
-    const isSel=id=>mode==='tilt'&&tiltTarget===id;
-
-    function tiltedV(px,py,col,hot,angleDeg){
-      const tanT=Math.tan((angleDeg||0)*Math.PI/180);
-      const x1=px-(py-RS)*tanT, x2=px+(CH-py)*tanT;
-      line(x1,RS,x2,CH,col,hot,true);
-    }
-    function tiltedH(px,py,col,hot,angleDeg){
-      const tanT=Math.tan((angleDeg||0)*Math.PI/180);
-      const y1=py-(px-RS)*tanT, y2=py+(CW-px)*tanT;
-      line(RS,y1,CW,y2,col,hot,true);
-    }
-
-    tiltedV(iLx,midY,GREEN,  isH('iL')||isSel('iL'), L.iLa||0); knob(iLx,midY,GREEN,  isH('iL')||isSel('iL'));
-    tiltedV(iRx,midY,GREEN,  isH('iR')||isSel('iR'), L.iRa||0); knob(iRx,midY,GREEN,  isH('iR')||isSel('iR'));
-    tiltedH(midX,iTy,MAGENTA,isH('iT')||isSel('iT'), L.iTa||0); knob(midX,iTy,MAGENTA,isH('iT')||isSel('iT'));
-    tiltedH(midX,iBy,MAGENTA,isH('iB')||isSel('iB'), L.iBa||0); knob(midX,iBy,MAGENTA,isH('iB')||isSel('iB'));
+    tiltedV(iLx,midY,GREEN,  isH('iL')||isSel('iL'), L.iLa||0); knob(iLx,midY,GREEN,  isH('iL')||isSel('iL'), lineLocks.iL);
+    tiltedV(iRx,midY,GREEN,  isH('iR')||isSel('iR'), L.iRa||0); knob(iRx,midY,GREEN,  isH('iR')||isSel('iR'), lineLocks.iR);
+    tiltedH(midX,iTy,MAGENTA,isH('iT')||isSel('iT'), L.iTa||0); knob(midX,iTy,MAGENTA,isH('iT')||isSel('iT'), lineLocks.iT);
+    tiltedH(midX,iBy,MAGENTA,isH('iB')||isSel('iB'), L.iBa||0); knob(midX,iBy,MAGENTA,isH('iB')||isSel('iB'), lineLocks.iB);
 
     // Tilt-mode selection ring around the selected line's knob
     if(mode==='tilt'&&tiltTarget){
-      const selCol=['iL','iR'].includes(tiltTarget)?GREEN:MAGENTA;
-      const kp={iL:{x:iLx,y:midY},iR:{x:iRx,y:midY},iT:{x:midX,y:iTy},iB:{x:midX,y:iBy}}[tiltTarget];
+      const selCol=['iL','iR'].includes(tiltTarget)?GREEN
+        :['iT','iB'].includes(tiltTarget)?MAGENTA
+        :outerCol;
+      const kp={
+        oL:{x:oLx,y:midY},oR:{x:oRx,y:midY},oT:{x:midX,y:oTy},oB:{x:midX,y:oBy},
+        iL:{x:iLx,y:midY},iR:{x:iRx,y:midY},iT:{x:midX,y:iTy},iB:{x:midX,y:iBy}
+      }[tiltTarget];
       ctx.save();
       ctx.beginPath(); ctx.arc(kp.x,kp.y,11,0,Math.PI*2);
       ctx.strokeStyle=selCol; ctx.lineWidth=2.5; ctx.setLineDash([]);
@@ -3590,7 +3724,7 @@ function openReport(){
   if(!loaded) return;
 
   // Flush current side
-  sideData[activeSide]={ L:{...L}, defects:defects.map(d=>({...d})), imgAngle, img, loaded };
+  sideData[activeSide]={ L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})), imgAngle, img, loaded };
 
   const frontData = sideData.front && sideData.front.loaded ? sideData.front : null;
   const backData  = sideData.back  && sideData.back.loaded  ? sideData.back  : null;
@@ -3963,13 +4097,14 @@ function defectCeiling() {
 function clearSide() {
   clearScanOverlay();
   // Mark this side as unloaded
-  sideData[activeSide] = { loaded: false, img: null, L:{oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0}, defects:[], imgAngle:0 };
+  sideData[activeSide] = { loaded: false, img: null, L:{oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0}, locks:{oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false}, defects:[], imgAngle:0 };
   sideData[activeSide+'_origSrc'] = null;
   sideData[activeSide+'_origImg'] = null;
 
   // Reset global state
   img=null; loaded=false;
-  L={oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0,iLa:0,iRa:0,iTa:0,iBa:0};
+  L={oL:0,oR:0,oT:0,oB:0,iL:0,iR:0,iT:0,iB:0,oLa:0,oRa:0,oTa:0,oBa:0,iLa:0,iRa:0,iTa:0,iBa:0};
+  lineLocks={oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
   defects=[]; defSeq=0; imgAngle=0;
   history.length=0; redoStack.length=0;
 
@@ -3985,6 +4120,7 @@ function clearSide() {
     img      = otherSd.img;
     loaded   = true;
     L        = {...otherSd.L};
+    lineLocks= otherSd.locks?{...otherSd.locks}:{oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
     defects  = (otherSd.defects||[]).map(d=>({...d}));
     defSeq   = defects.length ? Math.max(...defects.map(d=>d.id||0))+1 : 0;
     imgAngle = otherSd.imgAngle||0;
@@ -4037,7 +4173,7 @@ function saveSession(){
 
   // Flush current side into sideData before saving
   sideData[activeSide]={
-    L:{...L}, defects:defects.map(d=>({...d})),
+    L:{...L}, locks:{...lineLocks}, defects:defects.map(d=>({...d})),
     imgAngle, img, loaded,
     imageSrc: img.src
   };
@@ -4072,6 +4208,7 @@ function saveSession(){
       loaded:   true,
       imageSrc: dataUrl,
       L:        sL,
+      locks:    {...sd.locks},
       imgAngle: sd.imgAngle || 0,
       defects:  (sd.defects||[]).map(d=>({
         ...d,
@@ -4134,6 +4271,7 @@ function loadSession(file){
             img: im,
             imageSrc: sd.imageSrc,
             L: {...sd.L},
+            locks: sd.locks?{...sd.locks}:{oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false},
             imgAngle: sd.imgAngle||0,
             defects: (sd.defects||[]).map(d=>({...d}))
           };
@@ -4165,6 +4303,7 @@ function finalizeSessionLoad(session){
   loaded    = true;
   imgAngle  = sd.imgAngle||0;
   L         = {...sd.L};
+  lineLocks = sd.locks?{...sd.locks}:{oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
   defects   = (sd.defects||[]).map(d=>({...d}));
   defSeq    = defects.length ? Math.max(...defects.map(d=>d.id||0))+1 : 0;
   originalSrc = sideData[targetSide+'_origSrc'] || sd.imageSrc;
