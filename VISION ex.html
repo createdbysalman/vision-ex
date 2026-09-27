@@ -109,6 +109,7 @@ html,body{height:100%;overflow:hidden;}
   z-index:0;pointer-events:none;left:0;
 }
 .side-toggle[data-side="back"]::after{transform:translateX(100%);}
+.side-toggle[data-side="ereader"]::after{transform:translateX(100%);}
 .side-btn{position:relative;z-index:1;background:transparent !important;}
 .side-btn.on{color:var(--white);}
 
@@ -905,6 +906,13 @@ body{
       <div class="field"><label>Card No.</label><input id="fNum" type="text" placeholder="4/102"></div>
     </div>
     <div id="autoIdStatus" style="display:none;margin-top:6px;padding:5px 8px;font-family:var(--font-cd);font-size:10px;font-weight:600;letter-spacing:.06em;border-radius:3px;text-align:center;"></div>
+    <div class="field" style="margin-top:8px;">
+      <label>Card Type</label>
+      <div class="side-toggle" id="cardTypeToggle" data-side="standard">
+        <button type="button" class="side-btn on" id="typeStd" onclick="setEReaderCard(false)">Standard</button>
+        <button type="button" class="side-btn" id="typeEReader" onclick="setEReaderCard(true)" title="e-Reader cards (dot-code strip) grade front centering diagonally: Left vs Bottom, Right vs Top">e-Reader</button>
+      </div>
+    </div>
   </div></div>
 
   <div class="sec"><div class="sec-inner">
@@ -931,7 +939,7 @@ body{
         <div class="sc-head">
           <div class="sc-head-accent" style="background:var(--green)"></div>
           <div class="sc-head-inner">
-            <div class="sc-axis">Left / Right</div>
+            <div class="sc-axis" id="lrAxisLbl">Left / Right</div>
             <div class="sc-badge" id="lrBadge"><span class="gn" id="lrGN">—</span><span class="gl" id="lrGL">—</span></div>
           </div>
         </div>
@@ -943,7 +951,7 @@ body{
           </div>
           <div class="sc-val">
             <div class="sc-num" id="rPct">—<span class="sc-pct-sym"></span></div>
-            <div class="sc-dir">Right</div>
+            <div class="sc-dir" id="lrDirR">Right</div>
             <div class="sc-mm-inline" id="rMm">—</div>
           </div>
         </div>
@@ -960,19 +968,19 @@ body{
         <div class="sc-head">
           <div class="sc-head-accent" style="background:var(--mag)"></div>
           <div class="sc-head-inner">
-            <div class="sc-axis">Top / Bottom</div>
+            <div class="sc-axis" id="tbAxisLbl">Top / Bottom</div>
             <div class="sc-badge" id="tbBadge"><span class="gn" id="tbGN">—</span><span class="gl" id="tbGL">—</span></div>
           </div>
         </div>
         <div class="sc-vals">
           <div class="sc-val">
             <div class="sc-num" id="tPct">—<span class="sc-pct-sym"></span></div>
-            <div class="sc-dir">Top</div>
+            <div class="sc-dir" id="tbDirT">Top</div>
             <div class="sc-mm-inline" id="tMm">—</div>
           </div>
           <div class="sc-val">
             <div class="sc-num" id="bPct">—<span class="sc-pct-sym"></span></div>
-            <div class="sc-dir">Bottom</div>
+            <div class="sc-dir" id="tbDirB">Bottom</div>
             <div class="sc-mm-inline" id="bMm">—</div>
           </div>
         </div>
@@ -1014,12 +1022,12 @@ body{
       </div>
       <div class="overall-meta">
         <div class="omr">
-          <div class="omr-lbl">Left/Right Result</div>
+          <div class="omr-lbl" id="omLRLbl">Left/Right Result</div>
           <div class="omr-val" id="omLR">—</div>
         </div>
         <div class="omr-sep"></div>
         <div class="omr">
-          <div class="omr-lbl">Top/Bottom Result</div>
+          <div class="omr-lbl" id="omTBLbl">Top/Bottom Result</div>
           <div class="omr-val" id="omTB">—</div>
         </div>
         <div class="omr-sep"></div>
@@ -1670,6 +1678,11 @@ let L = { oL:0,oR:0,oT:0,oB:0, iL:0,iR:0,iT:0,iB:0 };
 // mobile) a line to toggle it; see the LINE LOCKING section below.
 let lineLocks = { oL:false,oR:false,oT:false,oB:false, iL:false,iR:false,iT:false,iB:false };
 let lastAutoL = null; // L immediately after the last Auto-Detect run, for the lock-time learning comparison
+// e-Reader cards (dot-code strip on the front) print the card art shifted
+// diagonally rather than symmetrically, so their FRONT centering is graded by
+// pairing adjacent borders — Left-vs-Bottom and Right-vs-Top — instead of the
+// usual opposite-border Left-vs-Right / Top-vs-Bottom. The back is unaffected.
+let isEReaderCard=false;
 let imgAngle=0;
 let showOverlayGrid=false, imgLocked=false, showCL=true, showReg=true;
 let cropRect=null, cropDrag=null;
@@ -1796,20 +1809,35 @@ function gradeOf(hi, isBack=false) {
   return              {g:5,    lbl:'EXCELLENT OR LOWER'};
 }
 
+function setEReaderCard(on) {
+  isEReaderCard=!!on;
+  document.getElementById('typeStd').classList.toggle('on',!isEReaderCard);
+  document.getElementById('typeEReader').classList.toggle('on',isEReaderCard);
+  document.getElementById('cardTypeToggle').dataset.side=isEReaderCard?'ereader':'standard';
+  if(loaded) updateUI();
+}
+
 function calc() {
   const lB=L.iL-L.oL, rB=L.oR-L.iR, tB=L.iT-L.oT, bB=L.oB-L.iB;
-  const lr=Math.max(lB+rB,.01), tb=Math.max(tB+bB,.01);
-  const lP=+(lB/lr*100).toFixed(2), rP=+(100-lP).toFixed(2);
-  const tP=+(tB/tb*100).toFixed(2), bP=+(100-tP).toFixed(2);
-  const lrHi=Math.max(lP,rP), tbHi=Math.max(tP,bP);
   const isBack=activeSide==='back';
-  // mm measurements
+  // e-Reader fronts pair adjacent borders (L vs B, R vs T) instead of opposite
+  // ones (L vs R, T vs B) — see isEReaderCard declaration above. Backs always
+  // use the standard opposite-border pairing. lP/rP and tP/bP below hold
+  // whichever pairing applies; they stay complementary (rP=100-lP, bP=100-tP)
+  // either way, so every consumer of calc() keeps working unmodified — only
+  // what each field *means* changes, and the UI relabels itself accordingly.
+  const isDiag=isEReaderCard&&!isBack;
+  const lr=Math.max((isDiag?lB+bB:lB+rB),.01), tb=Math.max((isDiag?rB+tB:tB+bB),.01);
+  const lP=+(lB/lr*100).toFixed(2), rP=+(100-lP).toFixed(2);
+  const tP=+((isDiag?rB:tB)/tb*100).toFixed(2), bP=+(100-tP).toFixed(2);
+  const lrHi=Math.max(lP,rP), tbHi=Math.max(tP,bP);
+  // mm measurements — always the true physical L/R/T/B border widths
   const cW=L.oR-L.oL, cH=L.oB-L.oT;
   const lMm=cW>0?(lB/cW*CARD_W_MM).toFixed(1):0;
   const rMm=cW>0?(rB/cW*CARD_W_MM).toFixed(1):0;
   const tMm=cH>0?(tB/cH*CARD_H_MM).toFixed(1):0;
   const bMm=cH>0?(bB/cH*CARD_H_MM).toFixed(1):0;
-  return { lP,rP,tP,bP,lrHi,tbHi,
+  return { lP,rP,tP,bP,lrHi,tbHi,isDiag,
     lrG:gradeOf(lrHi,isBack), tbG:gradeOf(tbHi,isBack),
     lMm,rMm,tMm,bMm };
 }
@@ -3654,12 +3682,21 @@ function updateUI(){
   const c=calc(),gc=n=>GCOL[n]||GCOL[6];
   lerpDisp(c);
   const dL=disp.lP.toFixed(1),dR=disp.rP.toFixed(1),dT=disp.tP.toFixed(1),dB=disp.bP.toFixed(1);
+  // e-Reader front: relabel the two score cards from Left/Right + Top/Bottom
+  // to Left/Bottom + Right/Top, and pull mm figures from the paired border.
+  document.getElementById('lrAxisLbl').textContent=c.isDiag?'Left / Bottom':'Left / Right';
+  document.getElementById('lrDirR').textContent=c.isDiag?'Bottom':'Right';
+  document.getElementById('tbAxisLbl').textContent=c.isDiag?'Right / Top':'Top / Bottom';
+  document.getElementById('tbDirT').textContent=c.isDiag?'Right':'Top';
+  document.getElementById('tbDirB').textContent=c.isDiag?'Top':'Bottom';
+  document.getElementById('omLRLbl').textContent=c.isDiag?'Left/Bottom Result':'Left/Right Result';
+  document.getElementById('omTBLbl').textContent=c.isDiag?'Right/Top Result':'Top/Bottom Result';
   // L/R
   const lrC=gc(c.lrG.g);
   document.getElementById('lPct').firstChild.textContent=dL;
   document.getElementById('rPct').firstChild.textContent=dR;
   document.getElementById('lMm').textContent=`${c.lMm} mm`;
-  document.getElementById('rMm').textContent=`${c.rMm} mm`;
+  document.getElementById('rMm').textContent=`${c.isDiag?c.bMm:c.rMm} mm`;
   document.getElementById('lrBar').style.cssText=`width:${disp.lP}%;background:${lrC}`;
   const lb=document.getElementById('lrBadge');lb.style.color=lrC;
   document.getElementById('lrGN').textContent=c.lrG.g;
@@ -3674,8 +3711,8 @@ function updateUI(){
   const tbC=gc(c.tbG.g);
   document.getElementById('tPct').firstChild.textContent=dT;
   document.getElementById('bPct').firstChild.textContent=dB;
-  document.getElementById('tMm').textContent=`${c.tMm} mm`;
-  document.getElementById('bMm').textContent=`${c.bMm} mm`;
+  document.getElementById('tMm').textContent=`${c.isDiag?c.rMm:c.tMm} mm`;
+  document.getElementById('bMm').textContent=`${c.isDiag?c.tMm:c.bMm} mm`;
   document.getElementById('tbBar').style.cssText=`width:${disp.tP}%;background:${tbC}`;
   const tb=document.getElementById('tbBadge');tb.style.color=tbC;
   document.getElementById('tbGN').textContent=c.tbG.g;
@@ -3699,7 +3736,7 @@ function updateUI(){
   document.getElementById('omLR').style.color=c.lrG.g==='10P'?'var(--g10p)':gc(c.lrG.g);
   document.getElementById('omTB').textContent=`${dT} / ${dB}`;
   document.getElementById('omTB').style.color=c.tbG.g==='10P'?'var(--g10p)':gc(c.tbG.g);
-  document.getElementById('omAxis').textContent=c.lrHi>=c.tbHi?'Left / Right':'Top / Bottom';
+  document.getElementById('omAxis').textContent=c.lrHi>=c.tbHi?(c.isDiag?'Left / Bottom':'Left / Right'):(c.isDiag?'Right / Top':'Top / Bottom');
   document.querySelectorAll('#stdBody tr').forEach(r=>{
     r.classList.remove('hi');
     const g=r.dataset.g;
@@ -3820,21 +3857,33 @@ function openReport(){
     return c2;
   }
 
-  // Stat cells helper
-  function statCell(axis, col, pct, mm, borderTop, borderRight) {
+  // Stat cells helper — dirKey is the true border direction being shown
+  // ('L'/'R'/'T'/'B'); isFirstGroup just controls the accent color so the two
+  // cells of each pairing (L/R normally, or L/B on e-Reader fronts) match.
+  function statCell(dirKey, isFirstGroup, col, pct, mm, borderTop, borderRight) {
     const bs=(borderTop?'border-top:1px solid #D4D2CB;':'')+( borderRight?'border-right:1px solid #D4D2CB;':'');
     return `<div class="rpt-stat-cell" style="${bs}">
-      <div class="rpt-stat-axis"><span class="rpt-axis-bar" style="background:${axis==='L'||axis==='R'?'#0066CC':'#EC008C'}"></span>${{L:'Left',R:'Right',T:'Top',B:'Bottom'}[axis]}</div>
+      <div class="rpt-stat-axis"><span class="rpt-axis-bar" style="background:${isFirstGroup?'#0066CC':'#EC008C'}"></span>${{L:'Left',R:'Right',T:'Top',B:'Bottom'}[dirKey]}</div>
       <div><span class="rpt-stat-big" style="color:${col}">${pct}</span><span class="rpt-stat-unit">%</span></div>
       <div class="rpt-stat-mm">${mm} mm</div>
     </div>`;
   }
 
+  // Given a calc()/calc2() result, resolves which border goes with which
+  // display slot — swaps to the e-Reader Left/Bottom + Right/Top pairing
+  // when c2.isDiag is set (front side of an e-Reader card), else the usual
+  // Left/Right + Top/Bottom pairing.
+  function diagDirs(c2) {
+    return c2.isDiag
+      ? { lKey:'L',rKey:'B',tKey:'R',bKey:'T', rMm:c2.bMm,tMm:c2.rMm,bMm:c2.tMm, lrLabel:'L / B',tbLabel:'R / T' }
+      : { lKey:'L',rKey:'R',tKey:'T',bKey:'B', rMm:c2.rMm,tMm:c2.tMm,bMm:c2.bMm, lrLabel:'L / R',tbLabel:'T / B' };
+  }
+
   // Ratio bar helper
-  function ratioBar(axis, col, pL, pR, labelL, labelR) {
+  function ratioBar(isFirstGroup, label, col, pL, pR, labelL, labelR) {
     return `<div class="rpt-ratio-block">
       <div class="rpt-ratio-head">
-        <span class="rpt-ratio-lbl" style="color:${axis==='lr'?'#0066CC':'#EC008C'}">${axis==='lr'?'L / R':'T / B'} Ratio</span>
+        <span class="rpt-ratio-lbl" style="color:${isFirstGroup?'#0066CC':'#EC008C'}">${label} Ratio</span>
         <span class="rpt-ratio-val" style="color:${col}">${pL} / ${pR}</span>
       </div>
       <div class="rpt-rbar"><div class="rpt-rbar-mid"></div><div class="rpt-rbar-fill" style="width:${pL}%;background:${col}"></div></div>
@@ -3851,6 +3900,7 @@ function openReport(){
     const DUAL_H=150, DUAL_W=Math.round(DUAL_H*63.5/88.9); // 150 × 107px
     const fCanvas=buildAnnotatedCanvas(frontData.img,frontData.L,frontData.defects,DUAL_W*3);
     const bCanvas=buildAnnotatedCanvas(backData.img,  backData.L, backData.defects, DUAL_W*3);
+    const fD=diagDirs(fC2), bD=diagDirs(bC2);
 
     document.getElementById('rptImgSection').innerHTML=`
       <div class="rpt-d-row">
@@ -3860,14 +3910,14 @@ function openReport(){
             <div class="rpt-d-thumb" id="rptFrontThumb"></div>
             <div class="rpt-d-data">
               <div class="rpt-stat-grid" style="height:${DUAL_H}px;margin-bottom:5px;">
-                ${statCell('L',gc(fC2.lrG.g),fC2.lP,fC2.lMm,false,true)}
-                ${statCell('R',gc(fC2.lrG.g),fC2.rP,fC2.rMm,false,false)}
-                ${statCell('T',gc(fC2.tbG.g),fC2.tP,fC2.tMm,true,true)}
-                ${statCell('B',gc(fC2.tbG.g),fC2.bP,fC2.bMm,true,false)}
+                ${statCell(fD.lKey,true,gc(fC2.lrG.g),fC2.lP,fC2.lMm,false,true)}
+                ${statCell(fD.rKey,true,gc(fC2.lrG.g),fC2.rP,fD.rMm,false,false)}
+                ${statCell(fD.tKey,false,gc(fC2.tbG.g),fC2.tP,fD.tMm,true,true)}
+                ${statCell(fD.bKey,false,gc(fC2.tbG.g),fC2.bP,fD.bMm,true,false)}
               </div>
               <div class="rpt-delta-strip">
-                <div class="rpt-delta-cell"><div class="rpt-delta-lbl">L/R Grade</div><div class="rpt-delta-val" style="color:${gc(fC2.lrG.g)}">${fC2.lrG.g}</div><div class="rpt-delta-sub">${fC2.lrG.lbl}</div></div>
-                <div class="rpt-delta-cell" style="border-left:1px solid #D4D2CB;"><div class="rpt-delta-lbl">T/B Grade</div><div class="rpt-delta-val" style="color:${gc(fC2.tbG.g)}">${fC2.tbG.g}</div><div class="rpt-delta-sub">${fC2.tbG.lbl}</div></div>
+                <div class="rpt-delta-cell"><div class="rpt-delta-lbl">${fD.lrLabel} Grade</div><div class="rpt-delta-val" style="color:${gc(fC2.lrG.g)}">${fC2.lrG.g}</div><div class="rpt-delta-sub">${fC2.lrG.lbl}</div></div>
+                <div class="rpt-delta-cell" style="border-left:1px solid #D4D2CB;"><div class="rpt-delta-lbl">${fD.tbLabel} Grade</div><div class="rpt-delta-val" style="color:${gc(fC2.tbG.g)}">${fC2.tbG.g}</div><div class="rpt-delta-sub">${fC2.tbG.lbl}</div></div>
               </div>
             </div>
           </div>
@@ -3878,14 +3928,14 @@ function openReport(){
             <div class="rpt-d-thumb" id="rptBackThumb"></div>
             <div class="rpt-d-data">
               <div class="rpt-stat-grid" style="height:${DUAL_H}px;margin-bottom:5px;">
-                ${statCell('L',gc(bC2.lrG.g),bC2.lP,bC2.lMm,false,true)}
-                ${statCell('R',gc(bC2.lrG.g),bC2.rP,bC2.rMm,false,false)}
-                ${statCell('T',gc(bC2.tbG.g),bC2.tP,bC2.tMm,true,true)}
-                ${statCell('B',gc(bC2.tbG.g),bC2.bP,bC2.bMm,true,false)}
+                ${statCell(bD.lKey,true,gc(bC2.lrG.g),bC2.lP,bC2.lMm,false,true)}
+                ${statCell(bD.rKey,true,gc(bC2.lrG.g),bC2.rP,bD.rMm,false,false)}
+                ${statCell(bD.tKey,false,gc(bC2.tbG.g),bC2.tP,bD.tMm,true,true)}
+                ${statCell(bD.bKey,false,gc(bC2.tbG.g),bC2.bP,bD.bMm,true,false)}
               </div>
               <div class="rpt-delta-strip">
-                <div class="rpt-delta-cell"><div class="rpt-delta-lbl">L/R Grade</div><div class="rpt-delta-val" style="color:${gc(bC2.lrG.g)}">${bC2.lrG.g}</div><div class="rpt-delta-sub">${bC2.lrG.lbl}</div></div>
-                <div class="rpt-delta-cell" style="border-left:1px solid #D4D2CB;"><div class="rpt-delta-lbl">T/B Grade</div><div class="rpt-delta-val" style="color:${gc(bC2.tbG.g)}">${bC2.tbG.g}</div><div class="rpt-delta-sub">${bC2.tbG.lbl}</div></div>
+                <div class="rpt-delta-cell"><div class="rpt-delta-lbl">${bD.lrLabel} Grade</div><div class="rpt-delta-val" style="color:${gc(bC2.lrG.g)}">${bC2.lrG.g}</div><div class="rpt-delta-sub">${bC2.lrG.lbl}</div></div>
+                <div class="rpt-delta-cell" style="border-left:1px solid #D4D2CB;"><div class="rpt-delta-lbl">${bD.tbLabel} Grade</div><div class="rpt-delta-val" style="color:${gc(bC2.tbG.g)}">${bC2.tbG.g}</div><div class="rpt-delta-sub">${bC2.tbG.lbl}</div></div>
               </div>
             </div>
           </div>
@@ -3899,6 +3949,7 @@ function openReport(){
     const sideLabel=activeSide.charAt(0).toUpperCase()+activeSide.slice(1);
     const c=activeC2;
     const lrC=gc(c.lrG.g), tbC=gc(c.tbG.g), ctrC=gc(ctrGrade.g), ovrC=gc(overallG);
+    const D=diagDirs(c);
     const sCanvas=buildAnnotatedCanvas(img,{...L},defects,420);
     document.getElementById('rptImgTitle').textContent='Card Image — Annotated Analysis View';
     document.getElementById('rptImgSection').innerHTML=`
@@ -3913,20 +3964,20 @@ function openReport(){
           <div>
             <div class="rpt-info-title">Border Measurements</div>
             <div class="rpt-stat-grid">
-              ${statCell('L',lrC,c.lP,c.lMm,false,true)}
-              ${statCell('R',lrC,c.rP,c.rMm,false,false)}
-              ${statCell('T',tbC,c.tP,c.tMm,true,true)}
-              ${statCell('B',tbC,c.bP,c.bMm,true,false)}
+              ${statCell(D.lKey,true,lrC,c.lP,c.lMm,false,true)}
+              ${statCell(D.rKey,true,lrC,c.rP,D.rMm,false,false)}
+              ${statCell(D.tKey,false,tbC,c.tP,D.tMm,true,true)}
+              ${statCell(D.bKey,false,tbC,c.bP,D.bMm,true,false)}
             </div>
           </div>
           <div>
-            ${ratioBar('lr',lrC,c.lP,c.rP,c.lP,c.rP)}
-            <div style="margin-top:6px;">${ratioBar('tb',tbC,c.tP,c.bP,c.tP,c.bP)}</div>
+            ${ratioBar(true,D.lrLabel,lrC,c.lP,c.rP,c.lP,c.rP)}
+            <div style="margin-top:6px;">${ratioBar(false,D.tbLabel,tbC,c.tP,c.bP,c.tP,c.bP)}</div>
           </div>
           <div class="rpt-delta-strip">
             <div class="rpt-delta-cell"><div class="rpt-delta-lbl">Centering Grade</div><div class="rpt-delta-val" style="color:${ctrC}">${ctrGrade.g}</div><div class="rpt-delta-sub">${ctrGrade.lbl} · Measured</div></div>
             <div class="rpt-delta-cell" style="border-left:1px solid #D4D2CB;border-right:1px solid #D4D2CB;"><div class="rpt-delta-lbl">Overall Est.</div><div class="rpt-delta-val" style="color:${ovrC}">${overallG}</div><div class="rpt-delta-sub">${overallLbl}${dc?' · Defect adj.':''}</div></div>
-            <div class="rpt-delta-cell"><div class="rpt-delta-lbl">Limiting Axis</div><div class="rpt-delta-val" style="font-size:12px;color:#666660;">${c.lrHi>=c.tbHi?'L / R':'T / B'}</div><div class="rpt-delta-sub">Grade ceiling</div></div>
+            <div class="rpt-delta-cell"><div class="rpt-delta-lbl">Limiting Axis</div><div class="rpt-delta-val" style="font-size:12px;color:#666660;">${c.lrHi>=c.tbHi?D.lrLabel:D.tbLabel}</div><div class="rpt-delta-sub">Grade ceiling</div></div>
           </div>
         </div>
       </div>`;
@@ -3967,7 +4018,9 @@ function openReport(){
 
   // ── Section 03 — grading summary ──────────────────────────────────────────
   const c=activeC2;
-  const lrAxis=c.lrHi>=c.tbHi?'L/R':'T/B';
+  const summaryD=diagDirs(c);
+  const lrAxisLabel=summaryD.lrLabel.replace(/ /g,''), tbAxisLabel=summaryD.tbLabel.replace(/ /g,'');
+  const lrAxis=c.lrHi>=c.tbHi?lrAxisLabel:tbAxisLabel;
   const defCtrG=ctrGrade.g, defCtrC=gc(defCtrG);
   const confirmedDefects=defects.filter(d=>!d.auto);
   const nickCount=confirmedDefects.filter(d=>d.type==='nick').length;
@@ -3978,7 +4031,7 @@ function openReport(){
   const summaryCards=[
     {cat:'Centering',col:gc(ctrGrade.g),score:ctrGrade.g,scoreLbl:ctrGrade.lbl,
      range:`${ctrGrade.lbl} — Limiting axis: ${lrAxis} at ${c.lrHi>=c.tbHi?c.lP+'/'+c.rP:c.tP+'/'+c.bP}`,
-     desc:`${bothSides?'Front+Back':'Side'} measured within tolerance on the limiting axis. Left ${c.lMm}mm, right ${c.rMm}mm. Top ${c.tMm}mm, bottom ${c.bMm}mm. ${c.lrHi>=c.tbHi?'T/B':'L/R'} axis meets ${c.lrHi>=c.tbHi?c.tbG.lbl:c.lrG.lbl} standard.`,
+     desc:`${bothSides?'Front+Back':'Side'} measured within tolerance on the limiting axis. Left ${c.lMm}mm, right ${c.rMm}mm. Top ${c.tMm}mm, bottom ${c.bMm}mm. ${c.lrHi>=c.tbHi?tbAxisLabel:lrAxisLabel} axis meets ${c.lrHi>=c.tbHi?c.tbG.lbl:c.lrG.lbl} standard.`,
      basis:'Measured · PSA + TAG TCG combined scale'},
     {cat:'Corners',col:cornerC,score:cornerG,scoreLbl:'Est.',
      range:'Estimated — based on marked defects',
@@ -4029,16 +4082,17 @@ function openReport(){
 }
 
 
-// calc for arbitrary L data (dual report)
+// calc for arbitrary L data (dual report) — mirrors calc()'s e-Reader diagonal pairing
 function calc2(Ld, sideKey='front') {
   const lB=Ld.iL-Ld.oL,rB=Ld.oR-Ld.iR,tB=Ld.iT-Ld.oT,bB=Ld.oB-Ld.iB;
-  const lr=Math.max(lB+rB,.01),tb=Math.max(tB+bB,.01);
-  const lP=+(lB/lr*100).toFixed(2), rP=+(100-lP).toFixed(2);
-  const tP=+(tB/tb*100).toFixed(2), bP=+(100-tP).toFixed(2);
-  const lrHi=Math.max(lP,rP),tbHi=Math.max(tP,bP);
   const isBack=sideKey==='back';
+  const isDiag=isEReaderCard&&!isBack;
+  const lr=Math.max((isDiag?lB+bB:lB+rB),.01),tb=Math.max((isDiag?rB+tB:tB+bB),.01);
+  const lP=+(lB/lr*100).toFixed(2), rP=+(100-lP).toFixed(2);
+  const tP=+((isDiag?rB:tB)/tb*100).toFixed(2), bP=+(100-tP).toFixed(2);
+  const lrHi=Math.max(lP,rP),tbHi=Math.max(tP,bP);
   const cW=Ld.oR-Ld.oL,cH=Ld.oB-Ld.oT;
-  return {lP,rP,tP,bP,lrHi,tbHi,
+  return {lP,rP,tP,bP,lrHi,tbHi,isDiag,
     lrG:gradeOf(lrHi,isBack), tbG:gradeOf(tbHi,isBack),
     lMm:cW>0?(((Ld.iL-Ld.oL)/cW)*CARD_W_MM).toFixed(1):0,
     rMm:cW>0?((( Ld.oR-Ld.iR)/cW)*CARD_W_MM).toFixed(1):0,
@@ -4186,7 +4240,8 @@ function saveSession(){
       name: document.getElementById('fName').value||'',
       set:  document.getElementById('fSet').value||'',
       year: document.getElementById('fYear').value||'',
-      num:  document.getElementById('fNum').value||''
+      num:  document.getElementById('fNum').value||'',
+      eReader: isEReaderCard
     },
     activeSide,
     sides: {}
@@ -4254,6 +4309,7 @@ function loadSession(file){
       document.getElementById('fSet').value  = session.cardInfo.set||'';
       document.getElementById('fYear').value = session.cardInfo.year||'';
       document.getElementById('fNum').value  = session.cardInfo.num||'';
+      setEReaderCard(!!session.cardInfo.eReader);
 
       const sides = Object.keys(session.sides).filter(s=>session.sides[s]&&session.sides[s].loaded);
       if(!sides.length) throw new Error('No image data in session');
@@ -4400,10 +4456,18 @@ function buildCoordsData(sideKey, pngFilename) {
       set:    document.getElementById('fSet').value  || '',
       year:   document.getElementById('fYear').value || '',
       number: document.getElementById('fNum').value  || '',
-      side:   sideKey
+      side:   sideKey,
+      is_ereader: isEReaderCard
     },
     analysis: {
       straighten_angle_deg: sd.imgAngle || 0,
+      // 'standard_opposite': left_pct/right_pct compare Left vs Right (and
+      // top_pct/bottom_pct compare Top vs Bottom), as on every normal card.
+      // 'diagonal_left_bottom_right_top': e-Reader-front pairing — left_pct/
+      // right_pct actually compare Left vs Bottom, and top_pct/bottom_pct
+      // actually compare Right vs Top. Check this before consuming the
+      // percentages below as ordinary opposite-border ratios.
+      centering_pairing: c.isDiag ? 'diagonal_left_bottom_right_top' : 'standard_opposite',
       centering: {
         left_pct:   c.lP,  right_pct:  c.rP,
         top_pct:    c.tP,  bottom_pct: c.bP,
