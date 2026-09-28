@@ -188,7 +188,7 @@ body{
 }
 
 /* ── LAYOUT ── */
-.app{display:flex;height:calc(100vh - 44px - env(safe-area-inset-top,0px));}
+.app{display:flex;height:calc(var(--app-h,100vh) - 44px - env(safe-area-inset-top,0px));}
 
 /* ── SIDEBAR ── */
 .sb{
@@ -737,7 +737,7 @@ body{
 
   /* ── LAYOUT ── */
   .app{flex-direction:column;}
-  .cv{flex:1;height:calc(100vh - 40px - env(safe-area-inset-top,0px));}
+  .cv{flex:1;height:calc(var(--app-h,100vh) - 40px - env(safe-area-inset-top,0px));}
   .cv-wrap{touch-action:none;}
 
   /* ── HEADER — minimal on mobile ── */
@@ -765,7 +765,7 @@ body{
   .sb{
     --peek-h: calc(56px + env(safe-area-inset-bottom,0px));
     position:fixed;bottom:0;left:0;right:0;
-    width:100%;height:min(90vh, calc(100vh - 44px - env(safe-area-inset-top,0px)));z-index:30;
+    width:100%;height:min(calc(var(--app-h,100vh) * .9), calc(var(--app-h,100vh) - 44px - env(safe-area-inset-top,0px)));z-index:30;
     transform:translateY(calc(100% - var(--peek-h)));
     transition:transform .35s cubic-bezier(.4,0,.2,1);
     border-top:2px solid var(--yellow);
@@ -774,7 +774,7 @@ body{
     box-shadow:0 -4px 24px rgba(0,0,0,.15);
     padding-bottom:env(safe-area-inset-bottom,0px);
   }
-  .sb[data-detent="half"]{transform:translateY(max(0px, calc(100% - 50vh)));}
+  .sb[data-detent="half"]{transform:translateY(max(0px, calc(100% - var(--app-h,100vh) * .5)));}
   .sb[data-detent="full"]{transform:translateY(0);}
   .sb-body{overflow-y:auto;-webkit-overflow-scrolling:touch;}
 
@@ -788,6 +788,13 @@ body{
     width:40px;height:4px;transform:translate(-50%,-50%);
     background:var(--yellow);border-radius:2px;pointer-events:none;
   }
+  .sb-handle::before{
+    content:'Details ▴';position:absolute;top:50%;right:14px;transform:translateY(-50%);
+    font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--label);pointer-events:none;
+  }
+  .sb[data-detent="half"] .sb-handle::before,
+  .sb[data-detent="full"] .sb-handle::before{content:'Close ▾';color:var(--text);}
 
   /* Backdrop — shown for half/full, not for peek */
   .sb-backdrop{
@@ -1332,6 +1339,18 @@ body{
 </div>
 
 <script>
+// iOS Safari's 100vh is the height with its toolbars *hidden*. While the
+// address bar / bottom toolbar are showing, anything sized to 100vh runs
+// underneath them — the fully-open bottom sheet's handle ended up behind the
+// address bar and the panel covered the whole page, trapping the user in it.
+// Track the height that's actually visible instead.
+(function(){
+  const setAppH = () => document.documentElement.style.setProperty('--app-h', window.innerHeight + 'px');
+  setAppH();
+  window.addEventListener('resize', setAppH);
+  window.addEventListener('orientationchange', () => setTimeout(setAppH, 250));
+})();
+
 // ════════════════════════════════════════════
 //  AUTO-ID: OCR + Pokemon TCG API + Search
 // ════════════════════════════════════════════
@@ -2160,6 +2179,7 @@ function loadFile(f) {
       setupCanvas(); initLines(); activateUI();
       clearScanOverlay();
       scanProg=0;
+      if (window._collapseSheet) window._collapseSheet();
       // Auto-identify card on front-side upload
       if (activeSide === 'front') { _clearLookedUpCard(); _pendingIdentifyImg = im; document.getElementById('autoIdStatus').style.display = 'none'; }
     };
@@ -4739,6 +4759,7 @@ function finalizeSessionLoad(session){
   renderDefList();
   tiltTarget=null; _syncTiltUI();
   setMode('lines');
+  if (window._collapseSheet) window._collapseSheet();
 
   const sides = Object.keys(session.sides||{}).filter(s=>session.sides[s]&&session.sides[s].loaded);
   showSessionStatus('Session loaded · '+(sides.length>1?'Both sides':'1 side'), false);
@@ -5203,9 +5224,15 @@ function fireConfetti(anchor){
     setDetent(target);
   });
 
-  // Show/hide handle based on viewport
+  // Show/hide handle based on viewport. iOS fires 'resize' every time its
+  // toolbars slide in or out, so only reset the sheet when we actually cross
+  // the phone/desktop breakpoint — otherwise just re-apply the current detent.
+  let wasMobile = null;
   function checkMobile(){
-    if(isMobile()){
+    const m = isMobile();
+    if(m === wasMobile){ if(m){ sb.style.transform=''; } return; }
+    wasMobile = m;
+    if(m){
       handle.style.display = 'block';
       setDetent(0);
     } else {
@@ -5217,6 +5244,9 @@ function fireConfetti(anchor){
   }
   window.addEventListener('resize', checkMobile);
   checkMobile();
+  // Drop the user onto the card after an upload / session load instead of
+  // leaving them inside the panel they used to pick the file.
+  window._collapseSheet = () => { if(isMobile()) setDetent(0); };
 
 // ════════════════════════════════════════════
 //  PWA SERVICE WORKER
