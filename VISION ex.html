@@ -299,6 +299,15 @@ body{
 .omr{display:flex;flex-direction:column;gap:1px;}
 .omr-lbl{font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--label);}
 .omr-val{font-family:var(--font-dp);font-size:13px;letter-spacing:.03em;}
+.price-box{display:none;padding:9px 13px 11px;border-top:1px solid var(--borderL);}
+.price-box.show{display:block;}
+.price-head{display:flex;justify-content:space-between;align-items:baseline;}
+.price-lbl{font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--label);}
+.price-src{font-family:var(--font-cd);font-size:8px;letter-spacing:.08em;color:var(--label2);}
+.price-main{font-family:var(--font-dp);font-size:26px;letter-spacing:.02em;color:var(--text);line-height:1.15;margin-top:2px;}
+.price-main.muted{font-size:12px;color:var(--label);font-family:var(--font-cd);letter-spacing:.04em;}
+.price-sub{font-family:var(--font-cd);font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--label);margin-top:2px;line-height:1.5;}
+.price-link{display:inline-block;margin-top:6px;font-family:var(--font-cd);font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text);border-bottom:1.5px solid var(--yellow);text-decoration:none;}
 .omr-sep{height:1px;background:var(--borderL);}
 
 /* PSA table */
@@ -493,6 +502,11 @@ body{
   font-size:11px;cursor:pointer;color:var(--text);transition:all .1s;
 }
 .str-fine button:hover{border-color:var(--text);}
+.step-chip{font-family:var(--font-cd);font-size:9px !important;font-weight:700;letter-spacing:.04em;color:var(--label) !important;}
+.str-fine .step-chip.on,.adj-steps .step-chip.on{background:var(--text) !important;border-color:var(--text) !important;color:var(--white) !important;}
+
+/* Mobile adjust panel (straighten / tilt) — hidden on desktop, which has inline toolbar controls */
+.adj-panel{display:none;}
 
 /* Def ctrl */
 .def-ctrl{display:none;align-items:center;gap:5px;}
@@ -802,6 +816,24 @@ body{
   .zoom-lbl{font-size:8px;min-width:28px;flex-shrink:0;}
   .str-ctrl{display:none !important;}
   .def-ctrl{display:none !important;}
+  .adj-panel.show{
+    display:block;position:absolute;top:50px;left:6px;right:6px;z-index:19;
+    background:var(--white);border:1px solid var(--borderL);border-radius:14px;
+    padding:8px 10px 10px;box-shadow:0 4px 16px rgba(0,0,0,.16);
+  }
+  .adj-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;}
+  .adj-name{font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--label);}
+  .adj-val{font-family:var(--font-cd);font-size:15px;font-weight:700;letter-spacing:.04em;color:var(--text);}
+  .adj-slider{-webkit-appearance:none;appearance:none;width:100%;height:32px;margin:2px 0 4px;background:transparent;touch-action:none;}
+  .adj-slider::-webkit-slider-runnable-track{height:4px;background:var(--borderL);border-radius:2px;}
+  .adj-slider::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;margin-top:-12px;border-radius:50%;background:var(--text);border:3px solid var(--white);box-shadow:0 0 0 1px var(--border);}
+  .adj-slider:disabled{opacity:.35;}
+  .adj-row{display:flex;align-items:center;gap:6px;}
+  .adj-btn{flex:0 0 40px;height:40px;border:1px solid var(--borderL);border-radius:10px;background:var(--paper);color:var(--text);font-size:20px;line-height:1;cursor:pointer;}
+  .adj-btn:active{background:var(--text);color:var(--white);}
+  .adj-steps{flex:1;display:flex;align-items:center;justify-content:center;gap:2px;flex-wrap:nowrap;min-width:0;}
+  .adj-steps-lbl{display:none;}
+  .adj-steps .step-chip{height:34px;flex:1 1 0;min-width:0;padding:0 1px;font-size:8.5px !important;border:1px solid var(--borderL);border-radius:8px;background:var(--paper);cursor:pointer;}
   /* Scan-for-defects: keep the slider + overlay toggle (still useful one-
      handed) but drop the text label, and grow the slider's thumb/track a
      touch — the 11px desktop thumb is under Apple's ~44pt touch guidance,
@@ -906,6 +938,7 @@ body{
       <div class="field"><label>Card No.</label><input id="fNum" type="text" placeholder="4/102"></div>
     </div>
     <div id="autoIdStatus" style="display:none;margin-top:6px;padding:5px 8px;font-family:var(--font-cd);font-size:10px;font-weight:600;letter-spacing:.06em;border-radius:3px;text-align:center;"></div>
+    <button type="button" class="tb-btn" style="width:100%;margin-top:6px;" onclick="reidentifyCard()" title="Re-run card identification on the current front image (after adjusting the outer lines)">Identify from image</button>
     <div class="field" style="margin-top:8px;">
       <label>Card Type</label>
       <div class="side-toggle" id="cardTypeToggle" data-side="standard">
@@ -1037,6 +1070,12 @@ body{
         </div>
       </div>
     </div>
+    <div class="price-box" id="priceBox">
+      <div class="price-head"><span class="price-lbl">Market Price</span><span class="price-src" id="priceSrc"></span></div>
+      <div class="price-main" id="priceMain">—</div>
+      <div class="price-sub" id="priceSub"></div>
+      <a class="price-link" id="priceLink" target="_blank" rel="noopener">Sold comps ↗</a>
+    </div>
   </div>
 
   <div class="sec" id="defSec" style="display:none"><div class="sec-inner">
@@ -1074,6 +1113,25 @@ body{
 
 <!-- ── CANVAS SECTION ── -->
 <section class="cv">
+  <!-- Mobile-only adjust panel: the toolbar's inline straighten/tilt controls are hidden on phones, so this floats under the toolbar instead -->
+  <div class="adj-panel" id="adjPanel">
+    <div class="adj-head"><span class="adj-name" id="adjName">Straighten</span><span class="adj-val" id="adjVal">+0.00°</span></div>
+    <input class="adj-slider" id="adjSlider" type="range" min="-15" max="15" step="0.01" value="0"
+           onpointerdown="saveState()" oninput="adjSliderInput(parseFloat(this.value))">
+    <div class="adj-row">
+      <button class="adj-btn" onclick="adjNudge(-1)" aria-label="Decrease">−</button>
+      <div class="adj-steps">
+        <span class="adj-steps-lbl">Step</span>
+        <button class="step-chip" data-step="0.01" onclick="setNudgeStep(0.01)">0.01°</button>
+        <button class="step-chip" data-step="0.05" onclick="setNudgeStep(0.05)">0.05°</button>
+        <button class="step-chip" data-step="0.1" onclick="setNudgeStep(0.1)">0.1°</button>
+        <button class="step-chip" data-step="0.5" onclick="setNudgeStep(0.5)">0.5°</button>
+        <button class="step-chip" data-step="1" onclick="setNudgeStep(1)">1°</button>
+      </div>
+      <button class="adj-btn" onclick="adjNudge(1)" aria-label="Increase">+</button>
+      <button class="adj-btn" onclick="adjReset()" aria-label="Reset">↺</button>
+    </div>
+  </div>
   <div class="tb">
     <!-- Group 1: Image orientation -->
     <div class="tb-group" data-group="orient">
@@ -1088,8 +1146,11 @@ body{
                onchange="setAngle(parseFloat(this.value)||0)" onfocus="this.select()">
         <span class="str-lbl" id="strLbl">+0.0°</span>
         <div class="str-fine">
-          <button onclick="nudgeAngle(-0.01)">−</button>
-          <button onclick="nudgeAngle(0.01)">+</button>
+          <button class="step-chip" data-step="0.01" onclick="setNudgeStep(0.01)" title="Nudge step">0.01</button>
+          <button class="step-chip" data-step="0.1" onclick="setNudgeStep(0.1)" title="Nudge step">0.1</button>
+          <button class="step-chip" data-step="1" onclick="setNudgeStep(1)" title="Nudge step">1</button>
+          <button onclick="nudgeAngle(-nudgeStep)">−</button>
+          <button onclick="nudgeAngle(nudgeStep)">+</button>
           <button onclick="setAngle(0)" title="Reset">↺</button>
         </div>
       </div>
@@ -1118,8 +1179,11 @@ body{
                onchange="setTilt(parseFloat(this.value)||0)" onfocus="this.select()">
         <span class="str-lbl" id="tiltLbl">+0.00°</span>
         <div class="str-fine">
-          <button onclick="nudgeTilt(-0.01)">−</button>
-          <button onclick="nudgeTilt(0.01)">+</button>
+          <button class="step-chip" data-step="0.01" onclick="setNudgeStep(0.01)" title="Nudge step">0.01</button>
+          <button class="step-chip" data-step="0.1" onclick="setNudgeStep(0.1)" title="Nudge step">0.1</button>
+          <button class="step-chip" data-step="1" onclick="setNudgeStep(1)" title="Nudge step">1</button>
+          <button onclick="nudgeTilt(-nudgeStep)">−</button>
+          <button onclick="nudgeTilt(nudgeStep)">+</button>
           <button onclick="setTilt(0)" title="Reset this line">↺</button>
         </div>
       </div>
@@ -1306,8 +1370,15 @@ function _otsuBinarize(ctx, w, h, invert) {
     const v = wB * wF * (mB - mF) * (mB - mF);
     if (v > maxVar) { maxVar = v; thresh = t; }
   }
+  let black = 0;
+  const bin = new Uint8Array(gray.length);
+  for (let p = 0; p < gray.length; p++) { bin[p] = gray[p] < thresh ? 0 : 255; if (!bin[p]) black++; }
+  // Text is always the minority class in these crops. Tesseract reads black-on-
+  // white far more reliably than white-on-black, so normalise polarity by
+  // pixel count rather than trusting the caller's guess about the card's colours.
+  const flip = black > gray.length / 2;
   for (let p = 0; p < gray.length; p++) {
-    const v = gray[p] < thresh ? 0 : 255;
+    const v = flip ? 255 - bin[p] : bin[p];
     id.data[p*4] = id.data[p*4+1] = id.data[p*4+2] = v;
   }
   ctx.putImageData(id, 0, 0);
@@ -1333,7 +1404,23 @@ function _showIdStatus(msg, color) {
   el.style.color = color === 'ok' ? '#006600' : color === 'err' ? '#C82814' : 'var(--label)';
 }
 
+// True while the Card Information fields hold a database lookup rather than
+// something the user typed — lets a new upload clear stale details without
+// ever wiping text the user entered themselves.
+let _cardFieldsFromLookup = false;
+function _clearLookedUpCard() {
+  if (!_cardFieldsFromLookup) return;
+  ['fName', 'fSet', 'fYear', 'fNum'].forEach(id => { document.getElementById(id).value = ''; });
+  _cardFieldsFromLookup = false;
+  _setCurrentCard(null);
+}
+document.addEventListener('DOMContentLoaded', () => {
+  ['fName', 'fSet', 'fYear', 'fNum'].forEach(id =>
+    document.getElementById(id).addEventListener('input', e => { if (e.isTrusted) _cardFieldsFromLookup = false; }));
+});
 function _fillCardFields(card, fallbackNum) {
+  _cardFieldsFromLookup = true;
+  _setCurrentCard(card);
   document.getElementById('fName').value = card.name || '';
   document.getElementById('fSet').value = (card.set && card.set.name) || '';
   document.getElementById('fYear').value = (card.set && card.set.releaseDate) ? card.set.releaseDate.slice(0, 4) : '';
@@ -1345,72 +1432,56 @@ function _fillCardFields(card, fallbackNum) {
 // generations; each is tried at both light-on-dark and dark-on-light
 // polarity since Otsu picks the split point but not which side is "ink".
 const _NUM_PASSES = [
+  // bottom-right (Base/Neo/SWSH-era and most special-rarity numbers)
   { top:.92, bot:.965, right:.30, inv:true,  sc:6 },
   { top:.92, bot:.965, right:.30, inv:false, sc:6 },
   { top:.915, bot:.97, right:.40, inv:true,  sc:5 },
   { top:.915, bot:.97, right:.40, inv:false, sc:5 },
   { top:.93, bot:.96, right:.25, inv:true,  sc:6 },
   { top:.88, bot:.98, right:.50, inv:true,  sc:4 },
+  // bottom-left (SV era, e-Card/e-Reader, EX era print the number there)
+  { top:.92, bot:.97, left:0,   right:.36, inv:true,  sc:6 },
+  { top:.92, bot:.97, left:0,   right:.36, inv:false, sc:6 },
+  { top:.935, bot:.97, left:.10, right:.40, inv:true, sc:5 },
+  { top:.935, bot:.965, left:.15, right:.36, inv:true, sc:5 },
+  { top:.90, bot:.985, left:.04, right:.50, inv:true,  sc:4 },
 ];
 // Name banner sits top-left, after the Stage/Basic icon and before the HP
 // box — generous enough to tolerate the layout shifting a bit by set/era.
 const _NAME_PASSES = [
   { top:.03, bot:.115, left:.11, right:.80, inv:true,  sc:5 },
   { top:.03, bot:.115, left:.11, right:.80, inv:false, sc:5 },
+  { top:.02, bot:.10,  left:.06, right:.72, inv:false, sc:5 },
+  { top:.02, bot:.10,  left:.06, right:.72, inv:true,  sc:5 },
 ];
-// Same region as the number passes — the set-code badge ("PFL EN") sits
-// right next to the number and reads far more reliably, since it's a
-// plain small-caps badge rather than the branded display font used for
-// both the name and (on special-rarity cards) the number itself.
-const _SETCODE_PASSES = [
-  { top:.92, bot:.965, right:.30, inv:true, sc:8 },
-  { top:.915, bot:.97, right:.40, inv:true, sc:6 },
-];
-const _LANG_CODES = ['EN','JP','DE','FR','IT','ES','PT','NL','PL','RU','KO','ZH','CS','ID','TH'];
-
-async function _findSetByPtcgoCode(code) {
-  try {
-    const r = await fetch('https://api.pokemontcg.io/v2/sets?q=ptcgoCode:' + encodeURIComponent(code));
-    if (!r.ok) return null;
-    const d = await r.json();
-    return (d.data && d.data[0]) || null;
-  } catch (e) { return null; }
-}
-
-// The set-code badge is plain small-caps text butted right up against the
-// 2-letter language code with no space ("PFL" + "EN" reads as "PFLEN") —
-// try trimming each known language suffix off each candidate token and
-// check the remainder against the API's ptcgoCode field.
-async function _findSetByCode(worker, imageEl, cW, cH, oc) {
-  await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT });
-  const tried = new Set();
-  for (const p of _SETCODE_PASSES) {
-    const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
-    const tokens = text.match(/[A-Z]{2,8}/g) || [];
-    for (const tok of tokens) {
-      // Try every contiguous 3-4 letter substring, not just the whole
-      // token — OCR on this small badge often glues on one stray character
-      // from a neighboring icon or the language code ("PFL"+"EN" reads as
-      // one run, "OPFL" picks up part of the rarity icon), so the real
-      // set code is usually IN the token rather than equal to it. 2-letter
-      // substrings are deliberately excluded — confirmed by testing that
-      // one is far too likely to coincidentally match some unrelated
-      // vintage set's code (e.g. "DR" out of "DRI" hit a real 2003 set)
-      // just by chance; every current-era code observed so far is 3
-      // letters, so anything shorter isn't worth the false-match risk.
-      const subs = new Set();
-      for (let len = 3; len <= 4 && len <= tok.length; len++) {
-        for (let i = 0; i + len <= tok.length; i++) subs.add(tok.slice(i, i + len));
-      }
-      for (const code of subs) {
-        if (tried.has(code) || _LANG_CODES.includes(code)) continue;
-        tried.add(code);
-        const set = await _findSetByPtcgoCode(code);
-        if (set) return set;
+// Pull (number, total) candidates out of raw OCR text. Strict = a clean
+// "n/tot". Loose handles the very common failure where the italic slash is
+// read as a 7 / 1 / I ("125/094" -> "1257094"): try every split of a digit
+// run, but only keep ones whose total is a real printed set size.
+function _extractNumCands(text, totals) {
+  const out = [];
+  const re = /(\d{1,3})\s*\/\s*(\d{1,3})/g; let m;
+  while ((m = re.exec(text))) out.push({ nRaw: m[1], tot: parseInt(m[2], 10), strict: true });
+  if (totals.size) {
+    for (const tok of (text.match(/[0-9\/]{4,}/g) || [])) {
+      const D = tok.replace(/\//g, '');
+      for (let st = 0; st < D.length; st++) for (let nl = 1; nl <= 3; nl++) {
+        const nRaw = D.substr(st, nl);
+        if (nRaw.length < nl) continue;
+        for (const sepLen of [0, 1]) {
+          if (sepLen && !'71'.includes(D[st + nl] || '')) continue;
+          for (const tl of [2, 3]) {
+            const tStr = D.substr(st + nl + sepLen, tl);
+            if (tStr.length < tl) continue;
+            const tot = parseInt(tStr, 10);
+            if (totals.has(tot)) out.push({ nRaw, tot, strict: false });
+          }
+        }
       }
     }
   }
-  return null;
+  return out.map(c => ({ ...c, n: parseInt(c.nRaw, 10) }))
+            .filter(c => c.n >= 1 && c.n <= 999 && c.tot >= 10 && c.tot <= 999 && c.n <= c.tot + 150);
 }
 
 async function _ocrCrop(worker, imageEl, cW, cH, p, oc) {
@@ -1421,107 +1492,308 @@ async function _ocrCrop(worker, imageEl, cW, cH, p, oc) {
   const ctx = oc.getContext('2d');
   ctx.drawImage(imageEl, x0, cy, cw, ch, 0, 0, oc.width, oc.height);
   _otsuBinarize(ctx, oc.width, oc.height, p.inv);
-  const { data: { text } } = await worker.recognize(oc);
+  // Tesseract needs a clear margin; a crop whose glyphs touch (or are cut by)
+  // the edge is a common cause of empty / garbage reads.
+  const pad = 30, padded = document.createElement('canvas');
+  padded.width = oc.width + pad * 2; padded.height = oc.height + pad * 2;
+  const pctx = padded.getContext('2d');
+  pctx.fillStyle = '#fff'; pctx.fillRect(0, 0, padded.width, padded.height);
+  pctx.drawImage(oc, pad, pad);
+  const { data: { text } } = await worker.recognize(padded);
   return text;
 }
 
+// ── data layer: TCGdex (api.tcgdex.net) ────────────────────────────────────
+// Used instead of api.pokemontcg.io, which currently 5xx's on roughly half of
+// all requests — every "couldn't read / wrong card" outcome traced back to a
+// lookup that silently failed. TCGdex answers every call, ships each set's full
+// card list, and includes TCGplayer + Cardmarket prices on the card record.
+const _DEX = 'https://api.tcgdex.net/v2/en';
+let currentCard = null, _priceVer = 0, _idRun = 0, _pendingIdentifyImg = null;
+
+async function _apiFetch(url, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), 15000);
+    try {
+      const r = await fetch(url, { signal: ac.signal });
+      clearTimeout(t);
+      if (r.ok) return await r.json();
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) return null;
+    } catch (e) { clearTimeout(t); }
+    await new Promise(res => setTimeout(res, 500 * (i + 1)));
+  }
+  return null;
+}
+const _dexCache = new Map();
+async function _dexGet(path) {
+  if (_dexCache.has(path)) return _dexCache.get(path);
+  const d = await _apiFetch(_DEX + path);
+  if (d) _dexCache.set(path, d);
+  return d;
+}
+// Real sets only — TCGdex also indexes the mobile "TCG Pocket" game (ids like A1, B1a, P-A).
+async function _dexSets() {
+  const d = await _dexGet('/sets');
+  return Array.isArray(d) ? d.filter(s => s.cardCount && !/^([A-Z]\d|P-A)/.test(s.id)) : [];
+}
+const _setIdOf = cardId => cardId.slice(0, cardId.lastIndexOf('-'));
+const _VMAP = { 'reverse-holofoil':'reverseHolofoil', '1st-edition-holofoil':'1stEditionHolofoil',
+                '1st-edition-normal':'1stEditionNormal', 'unlimited-holofoil':'unlimitedHolofoil' };
+
+// Full card record, normalized to the shape the rest of the app uses.
+async function _dexFull(id) {
+  const c = await _dexGet('/cards/' + encodeURIComponent(id));
+  if (!c) return null;
+  const sid = c.set && c.set.id;
+  const sd = sid ? await _dexGet('/sets/' + encodeURIComponent(sid)) : null;
+  const tp = c.pricing && c.pricing.tcgplayer, cm = c.pricing && c.pricing.cardmarket;
+  const prices = {};
+  if (tp) for (const [k, v] of Object.entries(tp)) {
+    if (v && typeof v === 'object' && (v.marketPrice != null || v.midPrice != null))
+      prices[_VMAP[k] || k] = { low: v.lowPrice, mid: v.midPrice, high: v.highPrice, market: v.marketPrice };
+  }
+  const cc = c.set && c.set.cardCount || {};
+  return {
+    id: c.id, name: c.name, number: c.localId, rarity: c.rarity,
+    set: { id: sid, name: c.set && c.set.name, printedTotal: cc.official, total: cc.total,
+           releaseDate: sd && sd.releaseDate ? sd.releaseDate.replace(/-/g, '/') : '' },
+    images: { small: c.image ? c.image + '/low.webp' : '' },
+    tcgplayer: Object.keys(prices).length ? { updatedAt: tp.updated ? tp.updated.slice(0, 10) : '', prices } : null,
+    cardmarket: cm && (cm.trend || cm.avg) ? { prices: { trendPrice: cm.trend, averageSellPrice: cm.avg } } : null
+  };
+}
+
+function _lev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+const _sim = (a, b) => 1 - _lev(a, b) / Math.max(a.length, b.length);
+const _normName = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+// How well an (often garbled) OCR line matches a real card name — best of
+// whole-string and per-word similarity, since OCR of the stylized banner
+// usually gets the Pokémon's name right and mangles the rest.
+function _nameScore(ocr, name) {
+  const a = _normName(ocr), b = _normName(name);
+  if (!a || !b) return 0;
+  let best = _sim(a, b);
+  const at = a.split(' ').filter(t => t.length >= 4), bt = b.split(' ').filter(t => t.length >= 4);
+  for (const x of at) for (const y of bt) best = Math.max(best, _sim(x, y) * 0.92);
+  return best;
+}
+// Every plausible text line from an OCR read (the banner crop also catches the
+// "Evolves from ..." line, so keep them all and let each candidate pick its best).
+function _ocrLines(raw) {
+  return raw.split('\n')
+    .map(l => l.replace(/[^A-Za-z0-9 '.\-]/g, '').replace(/\s+/g, ' ').trim())
+    .filter(l => (l.match(/[A-Za-z]/g) || []).length >= 3 && !/^(evolves|stage|basic|put |weak|resist|retreat)/i.test(l));
+}
+
+// Crop the upload down to the card itself (outer lines from Auto-Detect),
+// capped at ~1600px wide. The OCR regions are fractions of the card, so running
+// them on a photo with a table/background margin (or a 4600px 1200 DPI scan)
+// reads the wrong pixels entirely.
+function _cardCropCanvas(im) {
+  const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+  const x0 = Math.max(0, Math.min(L.oL, L.oR)), x1 = Math.min(iw, Math.max(L.oL, L.oR));
+  const y0 = Math.max(0, Math.min(L.oT, L.oB)), y1 = Math.min(ih, Math.max(L.oT, L.oB));
+  const w = x1 - x0, h = y1 - y0;
+  const aspect = h / (w || 1);
+  let sx = x0, sy = y0, sw = w, sh = h;
+  if (w < 100 || h < 100 || aspect < 1.25 || aspect > 1.6) { sx = 0; sy = 0; sw = iw; sh = ih; }
+  const sc = Math.min(1, 1600 / sw);
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(sw * sc)); c.height = Math.max(1, Math.round(sh * sc));
+  c.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+// Cards in any set of the right size that carry this printed number.
+async function _dexByNumber(nRaw, tot, sets) {
+  const nNum = parseInt(nRaw, 10), out = [];
+  for (const st of sets.filter(x => x.cardCount.official === tot || x.cardCount.total === tot)) {
+    const det = await _dexGet('/sets/' + encodeURIComponent(st.id));
+    if (!det || !det.cards) continue;
+    for (const c of det.cards) {
+      if (/^\d+$/.test(String(c.localId)) && parseInt(c.localId, 10) === nNum) {
+        out.push({ id: c.id, name: c.name, number: c.localId, image: c.image || '',
+                   images: { small: c.image ? c.image + '/low.webp' : '' },
+                   set: { id: st.id, name: st.name, printedTotal: st.cardCount.official, total: st.cardCount.total,
+                          releaseDate: det.releaseDate ? det.releaseDate.replace(/-/g, '/') : '' } });
+      }
+    }
+  }
+  return out;
+}
+
+// Name-only fallback: search by the longest OCR words.
+async function _dexByName(lines, sets) {
+  const setById = new Map(sets.map(s => [s.id, s]));
+  const toks = [...new Set(lines.flatMap(l => _normName(l).split(' ')).filter(t => t.length >= 4))]
+    .sort((a, b) => b.length - a.length).slice(0, 2);
+  const out = new Map();
+  for (const t of toks) {
+    const d = await _dexGet('/cards?name=like:' + encodeURIComponent(t));
+    for (const c of (Array.isArray(d) ? d : [])) {
+      const st = setById.get(_setIdOf(c.id));
+      if (!st || out.has(c.id)) continue;
+      out.set(c.id, { id: c.id, name: c.name, number: c.localId, image: c.image || '',
+                      images: { small: c.image ? c.image + '/low.webp' : '' },
+                      set: { id: st.id, name: st.name, printedTotal: st.cardCount.official, total: st.cardCount.total, releaseDate: '' } });
+    }
+  }
+  return [...out.values()];
+}
+
+// ── artwork comparison ─────────────────────────────────────────────────────
+// A number read alone can be wrong or shared by several sets; the artwork can't
+// lie. Compare a tiny version of the scan against each candidate's official
+// image (structure via correlation + overall colour via histogram overlap).
+const _imgCache = new Map();
+function _loadImg(url) {
+  if (_imgCache.has(url)) return _imgCache.get(url);
+  const p = new Promise(res => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => res(im); im.onerror = () => res(null); im.src = url;
+  });
+  _imgCache.set(url, p);
+  return p;
+}
+const _TW = 32, _TH = 44;
+function _thumbData(srcEl) {
+  const c = document.createElement('canvas'); c.width = _TW; c.height = _TH;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(srcEl, 0, 0, _TW, _TH);
+  return x.getImageData(0, 0, _TW, _TH).data;
+}
+function _similarity(a, b) {
+  const ga = [], gb = [], ha = new Float32Array(64), hb = new Float32Array(64);
+  for (let y = 4; y < _TH - 4; y++) for (let x = 3; x < _TW - 3; x++) {
+    const i = (y * _TW + x) * 4;
+    ga.push(.299 * a[i] + .587 * a[i+1] + .114 * a[i+2]);
+    gb.push(.299 * b[i] + .587 * b[i+1] + .114 * b[i+2]);
+    ha[(a[i] >> 6) * 16 + (a[i+1] >> 6) * 4 + (a[i+2] >> 6)]++;
+    hb[(b[i] >> 6) * 16 + (b[i+1] >> 6) * 4 + (b[i+2] >> 6)]++;
+  }
+  const n = ga.length; let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) { ma += ga[i]; mb += gb[i]; }
+  ma /= n; mb /= n;
+  let sab = 0, saa = 0, sbb = 0;
+  for (let i = 0; i < n; i++) { const da = ga[i] - ma, db = gb[i] - mb; sab += da * db; saa += da * da; sbb += db * db; }
+  const ncc = sab / Math.sqrt((saa || 1) * (sbb || 1));
+  let inter = 0; for (let k = 0; k < 64; k++) inter += Math.min(ha[k], hb[k]);
+  return .55 * Math.max(0, ncc) + .45 * (inter / n);
+}
+
 async function autoIdentifyCard(imageEl) {
+  const run = ++_idRun;
+  const alive = () => run === _idRun;
   _showIdStatus('IDENTIFYING CARD...', 'wait');
   try {
-    const cW = imageEl.naturalWidth, cH = imageEl.naturalHeight;
+    const src = _cardCropCanvas(imageEl);
+    const cW = src.width, cH = src.height;
     const oc = document.createElement('canvas');
-    const worker = await _getTessWorker();
-    const numRe = /(\d{1,3})\s*\/\s*(\d{1,3})/;
+    const [worker, sets] = await Promise.all([_getTessWorker(), _dexSets()]);
+    if (!sets.length) { _showIdStatus('CARD DATABASE UNREACHABLE — CHECK CONNECTION, THEN TAP "IDENTIFY FROM IMAGE"', 'err'); return; }
+    const totals = new Set();
+    sets.forEach(s => { totals.add(s.cardCount.official); totals.add(s.cardCount.total); });
 
-    // AUTO's page-layout analysis expects a full "page" and reliably finds
-    // nothing on these small single-region crops; SPARSE_TEXT is built for
-    // exactly this — pull out whatever text is there with no layout guess.
+    // 1 - printed number. Every pass votes; a total that recurs across
+    // independent crops is far likelier real than a one-off misread.
     await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT, tessedit_char_whitelist: '0123456789/' });
-
-    let cardNumber = '', setTotal = 0;
-    // Only numbers from a clean "n/tot"-shaped OCR match are ever trusted
-    // as a candidate — anything looser (e.g. a lone digit run with no
-    // accompanying total) is exactly what produced a confident WRONG
-    // identification in testing (a coincidental low number that also
-    // happened to be a real card in the correct set). Confidently wrong is
-    // worse than admitting the number couldn't be read.
-    const strictCandidates = [];
+    const votes = new Map(), seenGeo = new Set();
     for (const p of _NUM_PASSES) {
-      const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
-      const m = text.match(numRe);
-      if (m) {
-        const n = parseInt(m[1]), tot = parseInt(m[2]);
-        if (n >= 1 && n <= 999 && tot >= 10 && tot <= 999 && n <= tot + 100) {
-          if (!cardNumber) { cardNumber = n + '/' + tot; setTotal = tot; }
-          if (!strictCandidates.some(c => c.n === n && c.tot === tot)) strictCandidates.push({ n, tot });
-        }
+      const gk = [p.top, p.bot, p.left || 0, p.right, p.sc].join('|');
+      if (seenGeo.has(gk)) continue; seenGeo.add(gk);
+      const text = await _ocrCrop(worker, src, cW, cH, p, oc);
+      for (const c of _extractNumCands(text, totals)) {
+        const key = c.n + '/' + c.tot;
+        const v = votes.get(key) || { n: c.n, nRaw: c.nRaw, tot: c.tot, strict: 0, loose: 0 };
+        if (c.strict) { v.strict++; v.nRaw = c.nRaw; } else v.loose++;
+        votes.set(key, v);
       }
     }
+    if (!alive()) return;
+    const totSupport = new Map();
+    for (const v of votes.values()) totSupport.set(v.tot, (totSupport.get(v.tot) || 0) + v.strict * 3 + v.loose);
+    const numCands = [...votes.values()].sort((a, b) =>
+      (b.strict ? 1 : 0) - (a.strict ? 1 : 0) || totSupport.get(b.tot) - totSupport.get(a.tot) ||
+      b.nRaw.length - a.nRaw.length || (b.strict * 3 + b.loose) - (a.strict * 3 + a.loose));
 
-    if (cardNumber) {
-      _showIdStatus('FOUND #' + cardNumber + ' — LOOKING UP...', 'wait');
-      const card = await _searchTcgApi(cardNumber.split('/')[0], setTotal);
-      if (card) {
-        _fillCardFields(card, cardNumber);
-        _showIdStatus('IDENTIFIED: ' + card.name + ' — ' + (card.set && card.set.name || ''), 'ok');
+    // 2 - name banner (all lines kept)
+    _showIdStatus('READING NAME...', 'wait');
+    await worker.setParameters({ tessedit_char_whitelist: '' });
+    const lines = [], seenName = new Set();
+    for (const p of _NAME_PASSES) {
+      const gk = [p.top, p.bot, p.left || 0, p.right, p.sc].join('|');
+      if (seenName.has(gk)) continue; seenName.add(gk);
+      lines.push(..._ocrLines(await _ocrCrop(worker, src, cW, cH, p, oc)));
+    }
+    if (!alive()) return;
+
+    // 3 - candidates
+    _showIdStatus('MATCHING CARD DATABASE...', 'wait');
+    let list = [], seen = new Set();
+    for (const c of numCands.slice(0, 8)) {
+      for (const card of await _dexByNumber(c.nRaw, c.tot, sets)) {
+        if (seen.has(card.id)) continue; seen.add(card.id);
+        card._strict = c.strict; card._loose = c.loose; card._tot = totSupport.get(c.tot) || 0;
+        list.push(card);
+      }
+    }
+    if (!list.length && lines.length) list = await _dexByName(lines, sets);
+    list = list.slice(0, 40);
+    if (!alive()) return;
+
+    // 4 - score: artwork match dominates, name / number agreement break ties
+    _showIdStatus('COMPARING ARTWORK...', 'wait');
+    const ref = _thumbData(src);
+    const scoreAll = arr => Promise.all(arr.map(async c => {
+      const im = c.image ? await _loadImg(c.image + '/low.webp') : null;
+      c._img = im ? _similarity(ref, _thumbData(im)) : null;
+      c._nameScore = lines.reduce((m, l) => Math.max(m, _nameScore(l, c.name)), 0);
+      c._score = (c._img == null ? 0.25 : c._img) * 1.2 + c._nameScore * 0.5 + (c._strict || 0) * 0.05 + (c._loose || 0) * 0.02 + Math.min(c._tot || 0, 10) * 0.01;
+    }));
+    await scoreAll(list);
+    if (!alive()) return;
+    list.sort((a, b) => b._score - a._score);
+    // Number reading was weak (nothing matches the artwork or the name): widen the
+    // net with a name search and let the artwork comparison sort it out.
+    if (lines.length && !(list[0] && (list[0]._img >= 0.4 || list[0]._nameScore >= 0.7))) {
+      const have = new Set(list.map(c => c.id));
+      const extra = (await _dexByName(lines, sets)).filter(c => !have.has(c.id)).slice(0, 40);
+      await scoreAll(extra);
+      list = list.concat(extra).sort((a, b) => b._score - a._score);
+      if (!alive()) return;
+    }
+    window._idDebug = { numCands: numCands.slice(0, 6), lines, list: list.slice(0, 8).map(c => ({ id: c.id, name: c.name, img: c._img && +c._img.toFixed(2), nameScore: +c._nameScore.toFixed(2), score: +c._score.toFixed(2) })) };
+
+    // 5 - only auto-fill when the evidence agrees; otherwise ask.
+    const top = list[0], second = list[1];
+    let confident = false;
+    if (top) {
+      const imgOk = top._img != null && top._img >= _ID_IMG_MIN && (!second || top._img - (second._img || 0) >= _ID_IMG_GAP);
+      const nameOk = top._nameScore >= 0.7 && (!second || top._nameScore - second._nameScore >= 0.15 || (top._img || 0) > (second._img || 0));
+      confident = imgOk || (nameOk && (top._img == null || top._img >= _ID_IMG_MIN - 0.1));
+    }
+    if (confident) {
+      const full = await _dexFull(top.id);
+      if (full) {
+        _fillCardFields(full, full.number + '/' + (full.set.printedTotal || ''));
+        _showIdStatus('IDENTIFIED: ' + full.name + ' — ' + (full.set.name || ''), 'ok');
         return;
       }
-      document.getElementById('fNum').value = cardNumber;
     }
-
-    // The number wasn't readable (or didn't match anything) — the set-code
-    // badge ("PFL EN") sits right next to it in a plain, non-stylized font
-    // and reads far more reliably. Once the set is pinned down, a number
-    // candidate whose OCR'd total is close to that set's REAL printed
-    // total is a good confirmation; a candidate is otherwise never used
-    // for a specific-card claim, only for the honest partial result below.
-    _showIdStatus('READING SET CODE...', 'wait');
-    const set = await _findSetByCode(worker, imageEl, cW, cH, oc);
-    if (set) {
-      const knownTotal = set.printedTotal || set.total;
-      for (const c of strictCandidates) {
-        if (knownTotal && Math.abs(c.tot - knownTotal) > 3) continue;
-        try {
-          const r = await fetch('https://api.pokemontcg.io/v2/cards?q=set.id:"' + set.id + '"+number:"' + c.n + '"&pageSize=1');
-          if (r.ok) {
-            const d = await r.json();
-            if (d.data && d.data.length) {
-              _fillCardFields(d.data[0], c.n + '/' + knownTotal);
-              _showIdStatus('IDENTIFIED: ' + d.data[0].name + ' — ' + set.name, 'ok');
-              return;
-            }
-          }
-        } catch (e) { /* try next candidate */ }
-      }
-      // Set confirmed but no candidate number matched a card in it — still
-      // a real partial win, so hand it over instead of a flat "couldn't read".
-      document.getElementById('fSet').value = set.name;
-      document.getElementById('fYear').value = (set.releaseDate || '').slice(0, 4);
-      _showIdStatus('SET IDENTIFIED: ' + set.name + ' — TYPE CARD NAME TO FINISH', 'err');
-      return;
-    }
-
-    // Set code wasn't readable either — fall back to reading the name
-    // banner directly. It uses the same branded display font as the rest
-    // of the card, so a raw OCR guess is often garbled; showing that
-    // garbage in the field would be worse than an honest "couldn't read
-    // it", so it's only surfaced if it actually matches a real card.
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    let ocrName = '';
-    for (const p of _NAME_PASSES) {
-      const text = await _ocrCrop(worker, imageEl, cW, cH, p, oc);
-      ocrName = _cleanOcrName(text);
-      if (ocrName) break;
-    }
-    const verifiedName = ocrName ? await _verifyNameGuess(ocrName) : null;
-
-    if (verifiedName) {
-      const fName = document.getElementById('fName');
-      fName.value = verifiedName;
-      fName.dispatchEvent(new Event('input', { bubbles: true }));
-      _showIdStatus((cardNumber ? 'CARD #' + cardNumber + ' NOT FOUND' : 'COULD NOT READ NUMBER') + ' — GUESSED "' + verifiedName + '", PICK A MATCH BELOW', 'err');
-    } else if (cardNumber) {
-      _showIdStatus('CARD #' + cardNumber + ' NOT FOUND — TYPE NAME TO SEARCH', 'err');
+    const t0 = list[0];
+    if (t0 && ((t0._img || 0) >= 0.35 || t0._nameScore >= 0.6)) {
+      _showIdStatus('NOT SURE — PICK YOUR CARD FROM THE LIST BELOW', 'err');
+      if (window._showCardCandidates) window._showCardCandidates(list.slice(0, 10));
     } else {
       _showIdStatus('COULD NOT READ CARD — TYPE NAME TO SEARCH', 'err');
     }
@@ -1530,61 +1802,24 @@ async function autoIdentifyCard(imageEl) {
     _showIdStatus('AUTO-ID FAILED — TYPE NAME TO SEARCH', 'err');
   }
 }
+const _ID_IMG_MIN = 0.5, _ID_IMG_GAP = 0.08;
 
-// Confirms an OCR name guess against real card data before it's ever shown
-// to the user — tries the full cleaned string, then just its first word
-// (OCR on a stylized font tends to nail the opening letters and degrade
-// after), and only reports a match if the API actually has a card like it.
-async function _verifyNameGuess(name) {
-  const API = 'https://api.pokemontcg.io/v2';
-  async function tryQuery(q) {
-    if (!q || q.length < 3) return null;
-    try {
-      const r = await fetch(API + '/cards?q=name:"' + encodeURIComponent(q) + '*"&pageSize=1&select=name');
-      if (!r.ok) return null;
-      const d = await r.json();
-      return (d.data && d.data.length) ? q : null;
-    } catch (e) { return null; }
-  }
-  return (await tryQuery(name)) || (await tryQuery(name.split(' ')[0]));
+function reidentifyCard() {
+  if (!loaded || !img) return;
+  if (activeSide !== 'front') { _showIdStatus('SWITCH TO THE FRONT SIDE TO IDENTIFY', 'err'); return; }
+  autoIdentifyCard(img);
 }
 
-async function _searchTcgApi(num, setTotal) {
-  const API = 'https://api.pokemontcg.io/v2';
-  if (setTotal) {
-    try {
-      const setsResp = await fetch(API + '/sets?pageSize=250&orderBy=-releaseDate');
-      if (setsResp.ok) {
-        const setsData = await setsResp.json();
-        const matchingSets = (setsData.data || []).filter(s => s.printedTotal === setTotal);
-        for (const s of matchingSets) {
-          const r = await fetch(API + '/cards?q=set.id:"' + s.id + '"+number:"' + num + '"&pageSize=5');
-          if (r.ok) { const d = await r.json(); if (d.data && d.data.length) return d.data[0]; }
-        }
-      }
-    } catch (e) { console.warn('Set-total search failed:', e); }
-  }
-  try {
-    const r = await fetch(API + '/cards?q=number:"' + num + '"&pageSize=30&orderBy=-set.releaseDate');
-    if (r.ok) {
-      const d = await r.json();
-      if (d.data && d.data.length) {
-        if (setTotal) { const match = d.data.find(c => c.set && c.set.printedTotal === setTotal); if (match) return match; }
-        return d.data[0];
-      }
-    }
-  } catch (e) { console.warn('Number search failed:', e); }
-  return null;
-}
+function _setCurrentCard(card) { currentCard = card || null; _priceVer++; }
 
 // Card Name live search
 (function() {
-  const API = 'https://api.pokemontcg.io/v2';
   const input = document.getElementById('fName');
   const drop = document.getElementById('cardSearchDrop');
   let debounce = null, abortCtrl = null;
 
-  input.addEventListener('input', function() {
+  input.addEventListener('input', function(e) {
+    if (e.isTrusted && currentCard) { currentCard = null; _priceVer++; }
     clearTimeout(debounce);
     const q = this.value.trim();
     if (q.length < 2) { drop.style.display = 'none'; return; }
@@ -1596,10 +1831,17 @@ async function _searchTcgApi(num, setTotal) {
     if (abortCtrl) abortCtrl.abort();
     abortCtrl = new AbortController();
     try {
-      const r = await fetch(API + '/cards?q=name:"' + encodeURIComponent(q) + '*"&pageSize=15&orderBy=-set.releaseDate&select=name,number,set,rarity,images', { signal: abortCtrl.signal });
+      const sets = await _dexSets();
+      const setById = new Map(sets.map(s => [s.id, s]));
+      const r = await fetch(_DEX + '/cards?name=like:' + encodeURIComponent(q) + '&pagination:itemsPerPage=40', { signal: abortCtrl.signal });
       if (!r.ok) return;
       const d = await r.json();
-      renderResults(d.data || []);
+      const cards = (Array.isArray(d) ? d : []).map(c => {
+        const st = setById.get(_setIdOf(c.id));
+        return st ? { id: c.id, name: c.name, number: c.localId, images: { small: c.image ? c.image + '/low.webp' : '' },
+                      set: { id: st.id, name: st.name, printedTotal: st.cardCount.official, total: st.cardCount.total } } : null;
+      }).filter(Boolean).slice(0, 15);
+      renderResults(cards);
     } catch (e) { if (e.name !== 'AbortError') console.warn('Search error:', e); }
   }
 
@@ -1611,24 +1853,29 @@ async function _searchTcgApi(num, setTotal) {
       row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--borderL);font-family:var(--font-ui);font-size:11px;';
       const thumb = c.images && c.images.small ? '<img src="' + c.images.small + '" style="width:28px;height:auto;border-radius:2px;flex-shrink:0;" loading="lazy">' : '';
       const setName = c.set ? c.set.name : '';
-      const num = c.number ? c.number + '/' + (c.set.printedTotal || c.set.total || '') : '';
+      const num = c.number ? c.number + '/' + ((c.set && (c.set.printedTotal || c.set.total)) || '') : '';
       row.innerHTML = thumb +
         '<div style="flex:1;min-width:0;">' +
           '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.name + '</div>' +
-          '<div style="font-size:9px;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + setName + (num ? ' · #' + num : '') + (c.rarity ? ' · ' + c.rarity : '') + '</div>' +
+          '<div style="font-size:9px;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + setName + (num ? ' · #' + num : '') + '</div>' +
         '</div>';
-      row.addEventListener('mousedown', function(e) {
+      const pick = async function(e) {
         e.preventDefault();
-        _fillCardFields(c, '');
         drop.style.display = 'none';
-        _showIdStatus('SELECTED: ' + c.name + ' — ' + setName, 'ok');
-      });
+        _showIdStatus('LOADING ' + c.name.toUpperCase() + '...', 'wait');
+        const full = await _dexFull(c.id);
+        if (full) { _fillCardFields(full, ''); _showIdStatus('SELECTED: ' + full.name + ' — ' + (full.set.name || ''), 'ok'); }
+        else _showIdStatus('COULD NOT LOAD THAT CARD — TRY AGAIN', 'err');
+      };
+      row.addEventListener('mousedown', pick);
+      row.addEventListener('touchend', pick);
       row.addEventListener('mouseenter', function() { this.style.background = 'var(--light)'; });
       row.addEventListener('mouseleave', function() { this.style.background = ''; });
       drop.appendChild(row);
     }
     drop.style.display = 'block';
   }
+  window._showCardCandidates = renderResults;
 })();
 
 // ════════════════════════════════════════════
@@ -1914,7 +2161,7 @@ function loadFile(f) {
       clearScanOverlay();
       scanProg=0;
       // Auto-identify card on front-side upload
-      if (activeSide === 'front') autoIdentifyCard(im);
+      if (activeSide === 'front') { _clearLookedUpCard(); _pendingIdentifyImg = im; document.getElementById('autoIdStatus').style.display = 'none'; }
     };
     im.src=ev.target.result;
   };
@@ -1998,6 +2245,7 @@ function setMode(m) {
   else { tiltTarget=null; _syncTiltUI(); }
   setFoot();
   updateToolbar(m);
+  syncAdjPanel();
 }
 function updateToolbar(m){
   const show={
@@ -2051,6 +2299,7 @@ function _syncTiltUI() {
         : 'var(--label)')
       : 'var(--label)';
   }
+  syncAdjPanel();
 }
 
 function toggleGrid(){ showOverlayGrid=!showOverlayGrid; document.getElementById('gridBtn').classList.toggle('on',showOverlayGrid); }
@@ -2205,8 +2454,41 @@ function setAngle(deg){
   document.getElementById('strSlider').value=imgAngle;
   document.getElementById('strNum').value=imgAngle.toFixed(2);
   document.getElementById('strLbl').textContent=(imgAngle>=0?'+':'')+imgAngle.toFixed(2)+'°';
+  syncAdjPanel();
 }
 function nudgeAngle(d){ saveState(); setAngle(imgAngle+d); }
+
+// Nudge increment shared by the desktop toolbar buttons and the mobile adjust panel
+let nudgeStep=0.01;
+function setNudgeStep(v){
+  nudgeStep=v;
+  document.querySelectorAll('.step-chip').forEach(b=>b.classList.toggle('on',+b.dataset.step===v));
+}
+function adjNudge(sign){
+  if(mode==='straighten') nudgeAngle(sign*nudgeStep);
+  else if(mode==='tilt'&&tiltTarget) nudgeTilt(sign*nudgeStep);
+}
+function adjReset(){
+  if(mode==='straighten'){ saveState(); setAngle(0); }
+  else if(mode==='tilt'&&tiltTarget){ saveState(); setTilt(0); }
+}
+function adjSliderInput(v){
+  if(mode==='straighten') setAngle(v);
+  else if(mode==='tilt') setTilt(v);
+}
+function syncAdjPanel(){
+  const p=document.getElementById('adjPanel'); if(!p) return;
+  const on=mode==='straighten'||mode==='tilt';
+  p.classList.toggle('show',on);
+  if(!on) return;
+  const sl=document.getElementById('adjSlider'), nm=document.getElementById('adjName'), vl=document.getElementById('adjVal');
+  let angle, max, enabled;
+  if(mode==='straighten'){ angle=imgAngle; max=15; enabled=true; nm.textContent='Straighten image'; }
+  else { angle=tiltTarget?(L[tiltTarget+'a']||0):0; max=5; enabled=!!tiltTarget; nm.textContent=tiltTarget?TILT_NAMES[tiltTarget]+' tilt':'Tilt — tap a border line'; }
+  sl.min=-max; sl.max=max; sl.disabled=!enabled; sl.value=angle;
+  vl.textContent=enabled?(angle>=0?'+':'')+angle.toFixed(2)+'°':'—';
+}
+document.querySelectorAll('.step-chip').forEach(b=>b.classList.toggle('on',+b.dataset.step===nudgeStep));
 
 // ════════════════════════════════════════════
 //  AUTO-DETECT CALIBRATION — learns from user corrections
@@ -2404,6 +2686,10 @@ function runAuto() {
     iT:cl(iT,oTy+g,H*.48)*sy, iB:cl(iB,H*.52,oBy-g)*sy,
   };
   lastAutoL={...L};
+  if(_pendingIdentifyImg && activeSide==='front'){
+    const im=_pendingIdentifyImg; _pendingIdentifyImg=null;
+    autoIdentifyCard(im);
+  }
 }
 
 function resetLines(){
@@ -2802,6 +3088,13 @@ canvas.addEventListener('touchstart',e=>{
   if(e.touches.length===2) return;
   const{x,y}=cvPt(e);
   if(mode==='defect'){const hit=defectAtPoint(x,y);if(hit){saveState();draggingDefect=hit;}else{const ip=c2i(x,y);drawing={cx:ip.x,cy:ip.y,ex:ip.x,ey:ip.y};}return;}
+  if(mode==='tilt'){
+    // Tap a border to pick which line the tilt panel adjusts; pan otherwise
+    const h=hitTest(x,y);
+    if(h) selectTiltTarget(h.id);
+    else if(!imgLocked){ dragging='pan'; panStart={x,y}; }
+    return;
+  }
   const h=hitTest(x,y);
   if(h){
     longPressId=h.id; longPressStart={x,y};
@@ -3752,6 +4045,67 @@ function updateUI(){
     fireConfetti(document.querySelector('.overall-grade'));
   }
   disp.prevGrade=curG;
+  updatePriceUI(ov);
+}
+
+// ════════════════════════════════════════════
+//  MARKET PRICE (from the identified card's TCGplayer / Cardmarket data)
+// ════════════════════════════════════════════
+const _VARIANT_LBL = {
+  holofoil:'Holo', reverseHolofoil:'Reverse Holo', normal:'Normal',
+  '1stEditionHolofoil':'1st Ed. Holo', '1stEditionNormal':'1st Ed. Normal',
+  unlimitedHolofoil:'Unlimited Holo', unlimited:'Unlimited'
+};
+const _VARIANT_ORDER = ['holofoil','normal','reverseHolofoil','unlimitedHolofoil','unlimited','1stEditionHolofoil','1stEditionNormal'];
+const _usd = n => n == null ? '—' : n.toLocaleString('en-US', { style:'currency', currency:'USD', maximumFractionDigits: n >= 100 ? 0 : 2 });
+
+function _tcgVariants(card) {
+  const prices = card && card.tcgplayer && card.tcgplayer.prices;
+  if (!prices) return [];
+  const keys = [..._VARIANT_ORDER.filter(k => prices[k]), ...Object.keys(prices).filter(k => !_VARIANT_ORDER.includes(k))];
+  return keys.map(k => ({ key:k, label:_VARIANT_LBL[k] || k, ...prices[k] })).filter(v => v.market != null || v.mid != null);
+}
+
+let _priceKey = '';
+function updatePriceUI(ov) {
+  const box = document.getElementById('priceBox');
+  if (!box) return;
+  const grade = ov && ov.g != null ? String(ov.g) : '';
+  const key = (currentCard ? currentCard.id : 'none') + '|' + grade + '|' + _priceVer;
+  if (key === _priceKey) return;
+  _priceKey = key;
+  box.classList.add('show');
+  const main = document.getElementById('priceMain'), sub = document.getElementById('priceSub');
+  const src = document.getElementById('priceSrc'), link = document.getElementById('priceLink');
+  if (!currentCard) {
+    main.className = 'price-main muted'; main.textContent = 'Identify the card to see its price';
+    sub.textContent = ''; src.textContent = ''; link.style.display = 'none';
+    return;
+  }
+  const variants = _tcgVariants(currentCard);
+  const cm = currentCard.cardmarket && currentCard.cardmarket.prices;
+  if (!variants.length && !cm) {
+    main.className = 'price-main muted'; main.textContent = 'No market data for this card';
+    sub.textContent = ''; src.textContent = '';
+  } else {
+    const v = variants[0];
+    main.className = 'price-main';
+    main.textContent = v ? _usd(v.market != null ? v.market : v.mid) : '€' + (cm.trendPrice || cm.averageSellPrice || 0).toFixed(2);
+    const lines = [];
+    if (v) lines.push('Raw · ' + v.label + (v.low != null ? ' · low ' + _usd(v.low) : '') + (v.mid != null ? ' · mid ' + _usd(v.mid) : ''));
+    if (variants.length > 1) lines.push('Also: ' + variants.slice(1, 4).map(x => x.label + ' ' + _usd(x.market != null ? x.market : x.mid)).join(' · '));
+    if (cm && (cm.trendPrice || cm.averageSellPrice)) lines.push('Cardmarket trend €' + (cm.trendPrice || cm.averageSellPrice).toFixed(2));
+    sub.innerHTML = lines.join('<br>');
+    src.textContent = currentCard.tcgplayer && currentCard.tcgplayer.updatedAt ? 'TCGplayer · ' + currentCard.tcgplayer.updatedAt : '';
+  }
+  // Graded value isn't in any free feed — link straight to sold comps for the estimated grade.
+  const gl = grade === '10P' ? '10' : grade;
+  if (gl) {
+    const q = [currentCard.name, currentCard.number, currentCard.set && currentCard.set.name, 'PSA ' + gl].filter(Boolean).join(' ');
+    link.href = 'https://www.ebay.com/sch/i.html?_nkw=' + encodeURIComponent(q) + '&LH_Sold=1&LH_Complete=1';
+    link.textContent = 'PSA ' + gl + ' sold comps ↗';
+    link.style.display = '';
+  } else link.style.display = 'none';
 }
 
 // ════════════════════════════════════════════
@@ -4241,7 +4595,8 @@ function saveSession(){
       set:  document.getElementById('fSet').value||'',
       year: document.getElementById('fYear').value||'',
       num:  document.getElementById('fNum').value||'',
-      eReader: isEReaderCard
+      eReader: isEReaderCard,
+      cardId: currentCard ? currentCard.id : ''
     },
     activeSide,
     sides: {}
@@ -4310,6 +4665,10 @@ function loadSession(file){
       document.getElementById('fYear').value = session.cardInfo.year||'';
       document.getElementById('fNum').value  = session.cardInfo.num||'';
       setEReaderCard(!!session.cardInfo.eReader);
+      if (session.cardInfo.cardId) {
+        const cid = session.cardInfo.cardId;
+        _dexFull(cid).then(c => { if (c) _setCurrentCard(c); });
+      } else _setCurrentCard(null);
 
       const sides = Object.keys(session.sides).filter(s=>session.sides[s]&&session.sides[s].loaded);
       if(!sides.length) throw new Error('No image data in session');
