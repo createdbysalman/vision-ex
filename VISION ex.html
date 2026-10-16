@@ -875,6 +875,14 @@ body{
   .drop-ov-s{font-size:0;}
   .drop-ov-s::after{content:'swipe up panel to upload';font-size:10px;}
 }
+.btn-teach{display:flex;align-items:center;justify-content:center;width:100%;margin-top:8px;padding:10px 4px;border:1.5px solid #0D0D0D;background:#0D0D0D;color:#FFCD00;font-family:var(--font-dp);font-size:13px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer;transition:all .15s;}
+.btn-teach:hover:not(:disabled){background:#FFCD00;color:#0D0D0D;}
+.btn-teach:disabled{opacity:.28;cursor:default;}
+.teach-stats{font-family:var(--font-cd);font-size:10px;letter-spacing:.04em;color:var(--label);margin-top:5px;line-height:1.4;}
+.teach-stats b{color:var(--text);}
+.teach-links{display:flex;gap:5px;margin-top:3px;font-family:var(--font-cd);font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--label);}
+.teach-links a{cursor:pointer;color:var(--text);text-decoration:underline;text-underline-offset:2px;}
+.teach-links a:hover{color:#9E2000;}
 </style>
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -929,14 +937,19 @@ body{
       <button class="btn-export" id="exportJSONBtn" onclick="exportJSON()" disabled title="Export line coordinates + grade as JSON">Export JSON</button>
     </div>
     <div class="export-status" id="exportStatus"></div>
+    <button class="btn-teach" id="teachBtn" onclick="teachTool()" disabled title="Save this card's border measurements so auto-detect learns — no file is downloaded">Teach VISION ex</button>
+    <div class="teach-stats" id="teachStats"></div>
+    <div class="teach-links"><a onclick="exportTeach()">Export learned data</a><span>·</span><a onclick="document.getElementById('teachInput').click()">Import</a><span>·</span><a onclick="resetTeach()">Reset</a></div>
+    <input type="file" id="teachInput" accept=".json,application/json" style="display:none" onchange="if(this.files[0])importTeach(this.files[0]);this.value=''">
+    <div class="export-status" id="teachStatus"></div>
     <button class="btn-clear" id="clearBtn" onclick="clearSide()" disabled>Clear Side</button>
   </div></div>
 
   <div class="sec"><div class="sec-inner">
     <div class="sec-lbl">Card Information</div>
     <div class="field" style="position:relative;">
-      <label>Card Name <span id="searchHint" style="font-weight:400;letter-spacing:.05em;text-transform:none;color:var(--label2);font-size:7px;">(type to search)</span></label>
-      <input id="fName" type="text" placeholder="e.g. Charizard" autocomplete="off">
+      <label>Card Name <span id="searchHint" style="font-weight:400;letter-spacing:.05em;text-transform:none;color:var(--label2);font-size:7px;">(name + set or number)</span></label>
+      <input id="fName" type="text" placeholder="e.g. Jigglypuff Skyridge · Pikachu 051/162" autocomplete="off">
       <div id="cardSearchDrop" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:999;max-height:220px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-top:none;box-shadow:0 4px 12px rgba(0,0,0,.12);"></div>
     </div>
     <div class="field"><label>Set / Series</label><input id="fSet" type="text" placeholder="e.g. Base Set 1st Edition"></div>
@@ -1160,6 +1173,14 @@ body{
           <button onclick="nudgeAngle(nudgeStep)">+</button>
           <button onclick="setAngle(0)" title="Reset">↺</button>
         </div>
+      </div>
+      <button class="tb-btn" id="btnFlat" onclick="setMode(mode==='flatten'?'lines':'flatten')" disabled title="Correct perspective: auto-detect card edges, fine-tune corners, warp to a true rectangle">Flatten</button>
+      <div id="flatCtrl" style="display:none;align-items:center;gap:4px;flex-wrap:wrap;">
+        <button class="tb-btn" onclick="flatAutoDetect()" title="Re-run edge detection">Detect</button>
+        <button class="tb-btn" onclick="flatFromLines()" title="Start from the outer card lines">From Lines</button>
+        <button class="tb-btn" onclick="applyFlatten()" style="background:#FFCD00;color:#0D0D0D;border-color:#0D0D0D;">Apply</button>
+        <button class="tb-btn" onclick="cancelFlatten()">Cancel</button>
+        <span id="flatMsg" style="font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--label);padding:0 4px;"></span>
       </div>
     </div>
     <div class="tb-sep"></div>
@@ -1443,7 +1464,13 @@ function _fillCardFields(card, fallbackNum) {
   document.getElementById('fName').value = card.name || '';
   document.getElementById('fSet').value = (card.set && card.set.name) || '';
   document.getElementById('fYear').value = (card.set && card.set.releaseDate) ? card.set.releaseDate.slice(0, 4) : '';
-  document.getElementById('fNum').value = card.number ? card.number + '/' + (card.set.printedTotal || card.set.total || '') : (fallbackNum || '');
+  const _tot = String(card.set && (card.set.printedTotal || card.set.total) || '');
+  let _n = String(card.number || '');
+  const _yr = +((card.set && card.set.releaseDate) || '').slice(0, 4) || 0;
+  // Sword & Shield (2020) onward print padded numbers (051/162); older sets don't (68/144)
+  if (/^\d+$/.test(_n) && /^\d+$/.test(_tot)) _n = _yr >= 2020 ? _n.padStart(_tot.length, '0') : String(+_n);
+  document.getElementById('fNum').value = card.number ? _n + '/' + _tot : (fallbackNum || '');
+  if (typeof updateTeachStats === 'function') updateTeachStats();
 }
 
 // Crop geometries to try for the number, in native-image fractions.
@@ -1845,30 +1872,76 @@ function _setCurrentCard(card) { currentCard = card || null; _priceVer++; }
     debounce = setTimeout(() => searchCards(q), 350);
   });
   input.addEventListener('blur', function() { setTimeout(() => { drop.style.display = 'none'; }, 200); });
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = drop.style.display === 'block' && drop.querySelector('[data-card]');
+      if (first) first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      else { clearTimeout(debounce); const q = this.value.trim(); if (q.length >= 2) searchCards(q); }
+    } else if (e.key === 'Escape') drop.style.display = 'none';
+  });
 
   async function searchCards(q) {
     if (abortCtrl) abortCtrl.abort();
     abortCtrl = new AbortController();
+    const sig = abortCtrl.signal;
     try {
       const sets = await _dexSets();
       const setById = new Map(sets.map(s => [s.id, s]));
-      const r = await fetch(_DEX + '/cards?name=like:' + encodeURIComponent(q) + '&pagination:itemsPerPage=40', { signal: abortCtrl.signal });
-      if (!r.ok) return;
-      const d = await r.json();
-      const cards = (Array.isArray(d) ? d : []).map(c => {
-        const st = setById.get(_setIdOf(c.id));
-        return st ? { id: c.id, name: c.name, number: c.localId, images: { small: c.image ? c.image + '/low.webp' : '' },
-                      set: { id: st.id, name: st.name, printedTotal: st.cardCount.official, total: st.cardCount.total } } : null;
-      }).filter(Boolean).slice(0, 15);
-      renderResults(cards);
-    } catch (e) { if (e.name !== 'AbortError') console.warn('Search error:', e); }
+      // "Jigglypuff Skyridge", "Skyridge Jigglypuff", "Pikachu 051/162", "Pikachu base 1999"
+      const p = csParse(q), W = p.words;
+      if (!W.length) return;
+      const splits = [];
+      for (let k = W.length; k >= 1; k--) splits.push({ name: W.slice(0, k), rest: W.slice(k) });
+      for (let k = W.length - 1; k >= 1; k--) splits.push({ name: W.slice(W.length - k), rest: W.slice(0, W.length - k) });
+      let cards = [], rest = [], tried = 0;
+      for (const sp of splits) {
+        if (tried++ >= 8) break;
+        const nm = sp.name.join(' ');
+        if (nm.length < 2) continue;
+        const r = await fetch(_DEX + '/cards?name=like:' + encodeURIComponent(nm) + '&pagination:itemsPerPage=250', { signal: sig });
+        if (!r.ok) continue;
+        const d = await r.json();
+        cards = (Array.isArray(d) ? d : []).map(c => {
+          const st = setById.get(_setIdOf(c.id));
+          return st ? { id: c.id, name: c.name, number: c.localId, images: { small: c.image ? c.image + '/low.webp' : '' },
+                        set: { id: st.id, name: st.name, printedTotal: st.cardCount.official, total: st.cardCount.total } } : null;
+        }).filter(Boolean);
+        if (cards.length) { rest = sp.rest; break; }
+      }
+      if (sig.aborted) return;
+      if (!cards.length) { renderResults([], 'No cards found — check spelling or fill the fields manually'); return; }
+      let note = '';
+      if (p.num) {
+        const ex = cards.filter(c => csNorm(c.number) === csNorm(p.num));
+        if (ex.length) cards = ex; else note = 'No exact match for #' + p.num + ' — showing closest';
+      }
+      const restL = rest.map(csLow);
+      const score = c => {
+        let s = 0; const hay = csLow((c.set.name || '') + ' | ' + (c.set.id || ''));
+        restL.forEach(w => { if (w.length > 1 && hay.includes(w)) s += 3; else if (w.length > 2 && hay.includes(w.slice(0, 3))) s += 1; });
+        if (p.total && String(c.set.printedTotal) === String(+p.total || p.total)) s += 3;
+        return s;
+      };
+      cards = cards.map(c => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).map(x => x.c);
+      if (restL.length && cards.length && !score(cards[0])) note = note || 'Set not recognised — showing all ' + cards[0].name + ' cards';
+      renderResults(cards.slice(0, 15), note || (cards.length + ' match' + (cards.length === 1 ? '' : 'es')));
+    } catch (e) {
+      if (e.name !== 'AbortError') { console.warn('Search error:', e); renderResults([], 'Card database unreachable — fill the fields manually'); }
+    }
   }
 
-  function renderResults(cards) {
-    if (!cards.length) { drop.style.display = 'none'; return; }
+  function renderResults(cards, note) {
+    if (!cards.length && !note) { drop.style.display = 'none'; return; }
     drop.innerHTML = '';
+    if (note) {
+      const m = document.createElement('div');
+      m.style.cssText = 'padding:5px 8px;font-family:var(--font-cd);font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--label);border-bottom:1px solid var(--borderL);';
+      m.textContent = note; drop.appendChild(m);
+    }
     for (const c of cards) {
       const row = document.createElement('div');
+      row.dataset.card = c.id;
       row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--borderL);font-family:var(--font-ui);font-size:11px;';
       const thumb = c.images && c.images.small ? '<img src="' + c.images.small + '" style="width:28px;height:auto;border-radius:2px;flex-shrink:0;" loading="lazy">' : '';
       const setName = c.set ? c.set.name : '';
@@ -2045,6 +2118,7 @@ function applyHistState(s) {
 }
 
 document.addEventListener('keydown', e=>{
+  if(flatKey(e)) return;
   if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){e.preventDefault();undo();}
   if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){e.preventDefault();redo();}
   if(e.key==='Alt') altDown=true;
@@ -2214,7 +2288,7 @@ function activateUI() {
   document.getElementById('scoresWrap').style.display='block';
   document.getElementById('defSec').style.display='';
   document.getElementById('notesSec').style.display='';
-  ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard','gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn','clearBtn','btnTilt','btnScanDefects'].forEach(id=>{
+  ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard','gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn','clearBtn','btnTilt','btnScanDefects','btnFlat','teachBtn'].forEach(id=>{
     document.getElementById(id).disabled=false;
   });
   document.getElementById('undoBtn').disabled=true;
@@ -2249,15 +2323,18 @@ function defectAtPoint(cx,cy) {
 function setMode(m) {
   if(mode==='crop'&&m!=='crop'){cropRect=null;cropHandle=null;}
   mode=m;
-  ['btnStr','btnCrop','btnDef','btnTilt'].forEach(id=>{
+  ['btnStr','btnCrop','btnDef','btnTilt','btnFlat'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.classList.remove('on');
   });
-  const modeMap={straighten:'btnStr',crop:'btnCrop',defect:'btnDef',tilt:'btnTilt'};
+  const modeMap={straighten:'btnStr',crop:'btnCrop',defect:'btnDef',tilt:'btnTilt',flatten:'btnFlat'};
   if(modeMap[m]){ const el=document.getElementById(modeMap[m]); if(el) el.classList.add('on'); }
   document.getElementById('strCtrl').classList.toggle('show',m==='straighten');
   document.getElementById('tiltCtrl').classList.toggle('show',m==='tilt');
   document.getElementById('defCtrl').classList.toggle('show',m==='defect');
   document.getElementById('cropCtrl').style.display=m==='crop'?'flex':'none';
+  document.getElementById('flatCtrl').style.display=m==='flatten'?'flex':'none';
+  if(m!=='flatten'){ flatQ=null; flatDrag=null; flatSel=null; }
+  else if(!flatQ){ flatFromLines(); flatAutoDetect(); }
   if(m==='crop'){ initCropRect(); canvas.style.cursor='default'; }
   else if(m==='defect') canvas.style.cursor='crosshair';
   else canvas.style.cursor='default';
@@ -2542,6 +2619,18 @@ function getEffectiveRef(side){
       if(s && s.count>0) out[k]=(base[k]*REF_PRIOR_WEIGHT + s.sum)/(REF_PRIOR_WEIGHT + s.count);
     }
   }
+  // Teach VISION ex samples: same-set samples take over; otherwise blend by sample count
+  try{
+    const setEl=document.getElementById('fSet');
+    const t=learnedRef(side, setEl?setEl.value:'');
+    if(t.scope==='set') return {L:t.L,R:t.R,T:t.T,B:t.B};
+    if(t.scope==='side'&&t.n>0){
+      for(const k of ['L','R','T','B']){
+        const c=(learned&&learned[k]&&learned[k].count)||0, w=REF_PRIOR_WEIGHT+c;
+        out[k]=(out[k]*w + t[k]*(t.n+2) - (INNER_REF[side]||INNER_REF.front)[k]*2)/(w+t.n);
+      }
+    }
+  }catch(e){}
   return out;
 }
 function recordLineCorrection(side,key,pct){
@@ -2698,14 +2787,30 @@ function runAuto() {
   const iB=lineLocks.iB ? L.iB*wsy : (scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
     ?? (oBy-cFH*ref.B/100));
 
+  // Learned set border totals: rebuild an edge auto-detect clearly misread
+  // (left+right and top+bottom totals are fixed by the print run; centering only shifts them)
+  let iLf=iL,iRf=iR,iTf=iT,iBf=iB;
+  const tref=learnedRef(activeSide, document.getElementById('fSet').value);
+  const inn={L:(iL-oLx)/cFW*100, R:(oRx-iR)/cFW*100, T:(iT-oTy)/cFH*100, B:(oBy-iB)/cFH*100}, inn0={...inn};
+  const fixedN=applyLearnedBorders(null,inn,tref);
+  if(fixedN){
+    if(!lineLocks.iL&&inn.L!==inn0.L) iLf=oLx+inn.L/100*cFW;
+    if(!lineLocks.iR&&inn.R!==inn0.R) iRf=oRx-inn.R/100*cFW;
+    if(!lineLocks.iT&&inn.T!==inn0.T) iTf=oTy+inn.T/100*cFH;
+    if(!lineLocks.iB&&inn.B!==inn0.B) iBf=oBy-inn.B/100*cFH;
+  }
   const g=.005*W, IW=img.width, IH=img.height, sx=IW/W, sy=IH/H;
+  const keep={iLa:L.iLa||0,iRa:L.iRa||0,iTa:L.iTa||0,iBa:L.iBa||0}; if(L.flat) keep.flat=L.flat;
   L={
     oL:cl(oLx,W*.001,W*.38)*sx, oR:cl(oRx,W*.62,W*.999)*sx,
     oT:cl(oTy,H*.001,H*.38)*sy, oB:cl(oBy,H*.62,H*.999)*sy,
-    iL:cl(iL,oLx+g,W*.48)*sx, iR:cl(iR,W*.52,oRx-g)*sx,
-    iT:cl(iT,oTy+g,H*.48)*sy, iB:cl(iB,H*.52,oBy-g)*sy,
+    iL:cl(iLf,oLx+g,W*.48)*sx, iR:cl(iRf,W*.52,oRx-g)*sx,
+    iT:cl(iTf,oTy+g,H*.48)*sy, iB:cl(iBf,H*.52,oBy-g)*sy,
+    ...keep
   };
   lastAutoL={...L};
+  lastAuto[activeSide]=bordersPct(L);
+  if(fixedN) teachStatus(`Auto-detect corrected ${fixedN} axis${fixedN>1?'es':''} using learned ${tref.scope==='set'?'set':activeSide} borders (${tref.n} sample${tref.n===1?'':'s'})`);
   if(_pendingIdentifyImg && activeSide==='front'){
     const im=_pendingIdentifyImg; _pendingIdentifyImg=null;
     autoIdentifyCard(im);
@@ -2915,6 +3020,11 @@ canvas.addEventListener('mousemove',e=>{
   if(!loaded) return;
   const{x,y}=cvPt(e);
   mouseX=x; mouseY=y;
+  if(mode==='flatten'){
+    if(flatMove(x,y)){ canvas.style.cursor='grabbing'; return; }
+    if(dragging==='pan'){ const dx=x-panStart.x,dy=y-panStart.y; panX+=dx; panY+=dy; targetPanX+=dx; targetPanY+=dy; panStart={x,y}; pinPan(); canvas.style.cursor='grabbing'; return; }
+    flatHover=flatHit(x,y); canvas.style.cursor=flatHover?(flatHover.type==='c'?'move':'grab'):(imgLocked?'default':'grab'); return;
+  }
 
   if(dragging==='pan'){ const dx=x-panStart.x,dy=y-panStart.y; panX+=dx; panY+=dy; targetPanX+=dx; targetPanY+=dy; panStart={x,y}; pinPan(); canvas.style.cursor='grabbing'; return; }
 
@@ -3001,6 +3111,13 @@ canvas.addEventListener('mousedown',e=>{
   const{x,y}=cvPt(e);
   if(x<RS||y<RS) return;
 
+  if(mode==='flatten'){
+    if(flatDown(x,y)) return;
+    flatSel=null;
+    if(!imgLocked){ dragging='pan'; panStart={x,y}; canvas.style.cursor='grabbing'; }
+    return;
+  }
+
   if(mode==='crop'&&cropRect){
     const h=hitCropHandle(x,y);
     if(h){cropHandle=h;return;}
@@ -3036,6 +3153,7 @@ canvas.addEventListener('mousedown',e=>{
 });
 
 canvas.addEventListener('mouseup',e=>{
+  if(mode==='flatten'){ flatDrag=null; dragging=null; panStart=null; return; }
   if(mode==='crop'&&cropHandle){ cropHandle=null; dragging=null; panStart=null; return; }
 
   if(mode==='defect'){
@@ -3056,7 +3174,7 @@ canvas.addEventListener('mouseup',e=>{
 
 canvas.addEventListener('mouseleave',()=>{
   dragging=null;panStart=null;hoverLn=null;drawing=null;draggingDefect=null;hoverDefect=null;
-  cropHandle=null;
+  cropHandle=null; flatDrag=null; flatHover=null;
   mouseX=-1;mouseY=-1;canvas.style.cursor='default';
 });
 
@@ -3069,7 +3187,7 @@ canvas.addEventListener('contextmenu',e=>{
     if(hit) removeDefect(hit.id);
     return;
   }
-  if(mode==='crop') return;
+  if(mode==='crop'||mode==='flatten') return;
   const{x,y}=cvPt(e);
   const h=hitTest(x,y);
   if(h) toggleLineLock(h.id);
@@ -3095,6 +3213,7 @@ canvas.addEventListener('touchmove',e=>{
   if(longPressTimer&&longPressStart&&Math.hypot(x-longPressStart.x,y-longPressStart.y)>8){
     clearTimeout(longPressTimer);longPressTimer=null;
   }
+  if(mode==='flatten'&&flatMove(x,y)) return;
   if(mode==='defect'){
     if(draggingDefect){const ip=c2i(x,y);draggingDefect.cx=ip.x;draggingDefect.cy=ip.y;return;}
     if(drawing){const ip=c2i(x,y);drawing.ex=ip.x;drawing.ey=ip.y;return;}
@@ -3107,6 +3226,7 @@ canvas.addEventListener('touchstart',e=>{
   if(!loaded) return;e.preventDefault();lastPinchDist=null;
   if(e.touches.length===2) return;
   const{x,y}=cvPt(e);
+  if(mode==='flatten'){ if(!flatDown(x,y)){ flatSel=null; dragging='pan'; panStart={x,y}; } return; }
   if(mode==='defect'){const hit=defectAtPoint(x,y);if(hit){saveState();draggingDefect=hit;}else{const ip=c2i(x,y);drawing={cx:ip.x,cy:ip.y,ex:ip.x,ey:ip.y};}return;}
   if(mode==='tilt'){
     // Tap a border to pick which line the tilt panel adjusts; pan otherwise
@@ -3130,6 +3250,7 @@ canvas.addEventListener('touchstart',e=>{
 canvas.addEventListener('touchend',e=>{
   if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; }
   if(e.touches.length<2) lastPinchDist=null;
+  if(mode==='flatten'){ flatDrag=null; dragging=null; panStart=null; return; }
   if(mode==='defect'){
     if(draggingDefect){draggingDefect=null;return;}
     if(drawing){const r=Math.hypot(drawing.ex-drawing.cx,drawing.ey-drawing.cy);if(r>4)addDefect(drawing.cx,drawing.cy,r);drawing=null;return;}
@@ -3531,6 +3652,7 @@ function setFoot(){
   if(mode==='straighten') el.innerHTML='<span class="fc">Straighten mode</span><span class="fd">—</span>Drag slider or use − / + for 0.01° precision · ↺ resets to 0°';
   else if(mode==='crop') el.innerHTML='<span class="fc">Crop mode</span><span class="fd">—</span>Click and drag to draw a crop region · Apply to bake';
   else if(mode==='defect') el.innerHTML='<span style="color:var(--defcol);font-weight:700">Defect mode</span><span class="fd">—</span>Draw circles around defects · Drag to move · Right-click to remove';
+  else if(mode==='flatten') el.innerHTML='<span class="fc">Flatten mode</span><span class="fd">—</span>Drag corners (circles) or whole edges (squares) onto the card · Align the straight edges, not the rounded corners · Arrow keys nudge the selected corner (Shift = 10px) · Apply to warp';
   else if(mode==='tilt') el.innerHTML='<span class="fc">Tilt mode</span><span class="fd">—</span>Click any border, inner or outer, then drag slider or use − / + for 0.01° precision · Rotates that line only · ↺ resets to 0°';
   else el.innerHTML='<span class="fc">Blue lines</span><span class="fd">—</span>L/R borders<span class="fd">&nbsp;·&nbsp;</span><span class="mc">Magenta lines</span><span class="fd">—</span>T/B borders<span class="fd">&nbsp;·&nbsp;</span>Scroll to zoom · Drag to pan<span class="fd">&nbsp;·&nbsp;</span>Shift+drag snaps to PSA ratios<span class="fd">&nbsp;·&nbsp;</span>Alt for loupe<span class="fd">&nbsp;·&nbsp;</span>Right-click (long-press) a line to lock it';
 }
@@ -3698,6 +3820,631 @@ function drawDimLine(x1,y1,x2,y2,label,color,perpOff){
 }
 
 // ════════════════════════════════════════════
+//  FLATTEN — perspective correction (auto-detect + manual + homography warp)
+// ════════════════════════════════════════════
+const CARD_RATIO = CARD_H_MM / CARD_W_MM;   // 1.4 (portrait H/W)
+let flatQ = null;        // [TL,TR,BR,BL] in display-image space
+let flatAutoQ = null;    // quad as originally auto-detected (for training data)
+let flatAuto = false;    // whether the current quad came from auto-detect
+let flatDrag = null;     // {type:'c'|'e', i, start:{x,y}, orig:[...]}
+let flatSel = null;      // selected corner index (for arrow-key nudging)
+let flatHover = null;
+
+function flatMsg(t, isErr){
+  const el=document.getElementById('flatMsg');
+  if(el){ el.textContent=t||''; el.style.color=isErr?'#9E2000':'var(--label)'; }
+}
+
+// Image as currently displayed (straighten angle baked), same dimensions as img
+function flatSourceCanvas(){
+  const c=document.createElement('canvas'); c.width=img.width; c.height=img.height;
+  const x=c.getContext('2d');
+  if(imgAngle){
+    x.translate(img.width/2,img.height/2); x.rotate(imgAngle*Math.PI/180);
+    x.translate(-img.width/2,-img.height/2);
+  }
+  x.drawImage(img,0,0);
+  return c;
+}
+
+function orderQuad(pts){
+  const cx=pts.reduce((s,p)=>s+p.x,0)/4, cy=pts.reduce((s,p)=>s+p.y,0)/4;
+  const s=[...pts].sort((a,b)=>Math.atan2(a.y-cy,a.x-cx)-Math.atan2(b.y-cy,b.x-cx));
+  // atan2 order from -π: TL, TR, BR, BL (screen coords, y down)
+  let k=0,best=Infinity;
+  s.forEach((p,i)=>{ const v=p.x+p.y; if(v<best){best=v;k=i;} });
+  return [0,1,2,3].map(i=>({...s[(k+i)%4]}));
+}
+
+function quadFromLines(){
+  return [{x:L.oL,y:L.oT},{x:L.oR,y:L.oT},{x:L.oR,y:L.oB},{x:L.oL,y:L.oB}];
+}
+
+function flatFromLines(){
+  flatQ=quadFromLines(); flatAuto=false; flatAutoQ=null; flatSel=null;
+  flatMsg('Using outer card lines — drag corners to adjust');
+}
+
+// Robust line fit. vertical: x = a*y + b ; else y = a*x + b
+function robustFit(pts, vertical){
+  let P=pts.map(p=>vertical?{u:p.y,v:p.x}:{u:p.x,v:p.y});
+  let a=0,b=0;
+  for(let it=0; it<5; it++){
+    const n=P.length; if(n<5) return null;
+    let su=0,sv=0,suu=0,suv=0;
+    P.forEach(p=>{su+=p.u;sv+=p.v;suu+=p.u*p.u;suv+=p.u*p.v;});
+    const d=n*suu-su*su; if(Math.abs(d)<1e-9) return null;
+    a=(n*suv-su*sv)/d; b=(sv-a*su)/n;
+    const r=P.map(p=>Math.abs(p.v-(a*p.u+b)));
+    const med=[...r].sort((x,y)=>x-y)[Math.floor(r.length/2)];
+    const tol=Math.max(1.0, med*3);
+    const keep=P.filter((p,i)=>r[i]<=tol);
+    if(keep.length===P.length) break;
+    P=keep;
+  }
+  return {a,b,vertical};
+}
+
+function intersect(V,Hh){ // V: x=a1*y+b1, H: y=a2*x+b2
+  const x=(V.a*Hh.b+V.b)/(1-V.a*Hh.a);
+  return {x, y:Hh.a*x+Hh.b};
+}
+
+function quadValid(q, W, H){
+  const area=Math.abs(q.reduce((s,p,i)=>{const n=q[(i+1)%4];return s+p.x*n.y-n.x*p.y;},0))/2;
+  if(!(area>W*H*0.25)) return false;   // card should fill a meaningful part of the photo
+  // convexity
+  let sign=0;
+  for(let i=0;i<4;i++){
+    const a=q[i],b=q[(i+1)%4],c=q[(i+2)%4];
+    const z=(b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x);
+    if(Math.abs(z)<1e-6) return false;
+    if(!sign) sign=Math.sign(z); else if(Math.sign(z)!==sign) return false;
+  }
+  const w=(Math.hypot(q[1].x-q[0].x,q[1].y-q[0].y)+Math.hypot(q[2].x-q[3].x,q[2].y-q[3].y))/2;
+  const h=(Math.hypot(q[3].x-q[0].x,q[3].y-q[0].y)+Math.hypot(q[2].x-q[1].x,q[2].y-q[1].y))/2;
+  const r=h/w;
+  return r>1.15 && r<1.75;  // portrait card is 1.40 — rotate 90° first if the photo is sideways
+}
+
+function flatAutoDetect(){
+  if(!loaded) return;
+  flatMsg('Detecting card edges…');
+  setTimeout(()=>{
+    try{
+      // Already-cropped scan? (image itself is card-shaped) — don't hunt for edges inside it
+      const vr=img.height/img.width;
+      if(Math.abs(vr-CARD_RATIO)/CARD_RATIO<0.03 && !imgAngle){
+        flatQ=[{x:0,y:0},{x:img.width,y:0},{x:img.width,y:img.height},{x:0,y:img.height}];
+        flatAuto=false; flatAutoQ=null; flatSel=null;
+        flatMsg('Image is already cropped to card shape — adjust corners only if the scan is skewed');
+        return;
+      }
+      const q=detectCardQuad();
+      if(q){
+        flatQ=q; flatAutoQ=q.map(p=>({...p})); flatAuto=true; flatSel=null;
+        flatMsg('Edges detected — drag corners or edges to fine-tune, then Apply');
+      } else {
+        flatFromLines();
+        flatMsg('No clear card edges found (already cropped, sideways, or low contrast) — drag corners manually', true);
+      }
+    }catch(err){
+      console.error(err); flatFromLines();
+      flatMsg('Detection failed — adjust corners manually', true);
+    }
+  },20);
+}
+
+function detectCardQuad(){
+  const src=flatSourceCanvas();
+  const SW=src.width, SH=src.height;
+  const MAX=640, s=Math.min(1, MAX/Math.max(SW,SH));
+  const w=Math.max(2,Math.round(SW*s)), h=Math.max(2,Math.round(SH*s));
+  const sc=document.createElement('canvas'); sc.width=w; sc.height=h;
+  const sx=sc.getContext('2d'); sx.drawImage(src,0,0,w,h);
+  const D=sx.getImageData(0,0,w,h).data;
+
+  // 1. Background colour = median of the outer 3% frame
+  const band=Math.max(2,Math.round(Math.min(w,h)*0.03));
+  const R=[],G=[],B=[];
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    if(x<band||x>=w-band||y<band||y>=h-band){
+      if((x+y)%2) continue;
+      const i=(y*w+x)*4; R.push(D[i]);G.push(D[i+1]);B.push(D[i+2]);
+    }
+  }
+  const med=a=>{a.sort((x,y)=>x-y);return a[a.length>>1];};
+  const bg=[med(R),med(G),med(B)];
+
+  // 2. Distance from background + Otsu threshold
+  const N=w*h, dist=new Float32Array(N), hist=new Float64Array(256);
+  for(let p=0;p<N;p++){
+    const i=p*4, dr=D[i]-bg[0], dg=D[i+1]-bg[1], db=D[i+2]-bg[2];
+    const d=Math.min(255,Math.sqrt(dr*dr+dg*dg+db*db)*0.577);
+    dist[p]=d; hist[d|0]++;
+  }
+  let sum=0; for(let t=0;t<256;t++) sum+=t*hist[t];
+  let sB=0,wB=0,best=0,thr=40;
+  for(let t=0;t<256;t++){
+    wB+=hist[t]; if(!wB) continue;
+    const wF=N-wB; if(!wF) break;
+    sB+=t*hist[t];
+    const mB=sB/wB, mF=(sum-sB)/wF, v=wB*wF*(mB-mF)*(mB-mF);
+    if(v>best){best=v;thr=t;}
+  }
+  thr=Math.max(thr,18);
+
+  // 3. Background = foreground-free region connected to the frame; card = everything else
+  const fg=new Uint8Array(N); for(let p=0;p<N;p++) fg[p]=dist[p]>thr?1:0;
+  const bgMask=new Uint8Array(N), stack=new Int32Array(N); let sp=0;
+  const pushBg=p=>{ if(!fg[p]&&!bgMask[p]){bgMask[p]=1;stack[sp++]=p;} };
+  for(let x=0;x<w;x++){pushBg(x);pushBg((h-1)*w+x);}
+  for(let y=0;y<h;y++){pushBg(y*w);pushBg(y*w+w-1);}
+  while(sp){
+    const p=stack[--sp], x=p%w, y=(p/w)|0;
+    if(x>0)pushBg(p-1); if(x<w-1)pushBg(p+1);
+    if(y>0)pushBg(p-w); if(y<h-1)pushBg(p+w);
+  }
+  // largest non-background component
+  const lab=new Int32Array(N); let bestLab=0,bestSize=0,cur=0;
+  for(let p0=0;p0<N;p0++){
+    if(bgMask[p0]||lab[p0]) continue;
+    cur++; let size=0; sp=0; stack[sp++]=p0; lab[p0]=cur;
+    while(sp){
+      const p=stack[--sp]; size++;
+      const x=p%w, y=(p/w)|0;
+      const nb=[x>0?p-1:-1, x<w-1?p+1:-1, y>0?p-w:-1, y<h-1?p+w:-1];
+      for(const q of nb){ if(q>=0&&!bgMask[q]&&!lab[q]){lab[q]=cur;stack[sp++]=q;} }
+    }
+    if(size>bestSize){bestSize=size;bestLab=cur;}
+  }
+  if(!bestLab || bestSize<N*0.10) return null;
+
+  // 4. Bounding box of card component
+  let x0=w,x1=0,y0=h,y1=0;
+  for(let p=0;p<N;p++) if(lab[p]===bestLab){
+    const x=p%w,y=(p/w)|0; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+  }
+  const bw=x1-x0, bh=y1-y0;
+
+  // 5. Edge samples from the middle 70% of each side (avoids rounded corners)
+  const Lp=[],Rp=[],Tp=[],Bp=[];
+  for(let y=Math.round(y0+bh*0.15); y<=y1-bh*0.15; y++){
+    let l=-1,r=-1;
+    for(let x=x0;x<=x1;x++) if(lab[y*w+x]===bestLab){l=x;break;}
+    for(let x=x1;x>=x0;x--) if(lab[y*w+x]===bestLab){r=x+1;break;}
+    if(l>=0){Lp.push({x:l,y:y+.5});Rp.push({x:r,y:y+.5});}
+  }
+  for(let x=Math.round(x0+bw*0.15); x<=x1-bw*0.15; x++){
+    let t=-1,b=-1;
+    for(let y=y0;y<=y1;y++) if(lab[y*w+x]===bestLab){t=y;break;}
+    for(let y=y1;y>=y0;y--) if(lab[y*w+x]===bestLab){b=y+1;break;}
+    if(t>=0){Tp.push({x:x+.5,y:t});Bp.push({x:x+.5,y:b});}
+  }
+  const up=a=>a.map(p=>({x:p.x/s,y:p.y/s}));
+  let lines={L:robustFit(up(Lp),true),R:robustFit(up(Rp),true),T:robustFit(up(Tp),false),B:robustFit(up(Bp),false)};
+  if(!lines.L||!lines.R||!lines.T||!lines.B) return null;
+
+  // 6. Sub-pixel refinement at full resolution (gradient peak along each edge normal)
+  const full=src.getContext('2d').getImageData(0,0,SW,SH).data;
+  const lum=(x,y)=>{
+    const xi=Math.max(0,Math.min(SW-2,x|0)), yi=Math.max(0,Math.min(SH-2,y|0));
+    const fx=x-xi, fy=y-yi, g=(xx,yy)=>{const i=(yy*SW+xx)*4;return .299*full[i]+.587*full[i+1]+.114*full[i+2];};
+    return g(xi,yi)*(1-fx)*(1-fy)+g(xi+1,yi)*fx*(1-fy)+g(xi,yi+1)*(1-fx)*fy+g(xi+1,yi+1)*fx*fy;
+  };
+  const refine=(ln, lo, hi)=>{
+    const RAD=Math.ceil(2.5/s)+2, pts=[];
+    for(let k=0;k<60;k++){
+      const u=lo+(hi-lo)*(0.15+0.7*k/59);
+      const px=ln.vertical?ln.a*u+ln.b:u, py=ln.vertical?u:ln.a*u+ln.b;
+      // unit normal to line
+      let nx=ln.vertical?1:-ln.a, ny=ln.vertical?-ln.a:1; const nn=Math.hypot(nx,ny); nx/=nn; ny/=nn;
+      let bestG=0,bestT=null,prev=lum(px-nx*RAD,py-ny*RAD);
+      const prof=[];
+      for(let t=-RAD+1;t<=RAD;t++){ const v=lum(px+nx*t,py+ny*t); prof.push({t:t-.5,g:Math.abs(v-prev)}); prev=v; }
+      prof.forEach((e,i)=>{ if(e.g>bestG){bestG=e.g;bestT=i;} });
+      if(bestT===null||bestG<6) continue;
+      let t=prof[bestT].t;
+      if(bestT>0&&bestT<prof.length-1){ // parabolic sub-pixel peak
+        const a=prof[bestT-1].g,b=prof[bestT].g,c=prof[bestT+1].g,den=a-2*b+c;
+        if(Math.abs(den)>1e-6) t+=0.5*(a-c)/den;
+      }
+      pts.push({x:px+nx*t,y:py+ny*t});
+    }
+    const f=robustFit(pts,ln.vertical);
+    return f&&pts.length>=15?f:ln;
+  };
+  const c0=[intersect(lines.L,lines.T),intersect(lines.R,lines.T),intersect(lines.R,lines.B),intersect(lines.L,lines.B)];
+  lines={
+    L:refine(lines.L,c0[0].y,c0[3].y), R:refine(lines.R,c0[1].y,c0[2].y),
+    T:refine(lines.T,c0[0].x,c0[1].x), B:refine(lines.B,c0[3].x,c0[2].x)
+  };
+  const q=[intersect(lines.L,lines.T),intersect(lines.R,lines.T),intersect(lines.R,lines.B),intersect(lines.L,lines.B)];
+  return quadValid(q,SW,SH)?q:null;
+}
+
+// Solve homography H mapping (x,y) → (u,v) for 4 point pairs
+function homography(srcPts, dstPts){
+  const A=[],bv=[];
+  for(let i=0;i<4;i++){
+    const {x,y}=srcPts[i], {x:u,y:v}=dstPts[i];
+    A.push([x,y,1,0,0,0,-x*u,-y*u]); bv.push(u);
+    A.push([0,0,0,x,y,1,-x*v,-y*v]); bv.push(v);
+  }
+  for(let c=0;c<8;c++){ // Gaussian elimination, partial pivot
+    let piv=c; for(let r=c+1;r<8;r++) if(Math.abs(A[r][c])>Math.abs(A[piv][c])) piv=r;
+    [A[c],A[piv]]=[A[piv],A[c]]; [bv[c],bv[piv]]=[bv[piv],bv[c]];
+    if(Math.abs(A[c][c])<1e-12) return null;
+    for(let r=0;r<8;r++){ if(r===c) continue;
+      const f=A[r][c]/A[c][c]; if(!f) continue;
+      for(let k=c;k<8;k++) A[r][k]-=f*A[c][k]; bv[r]-=f*bv[c];
+    }
+  }
+  return bv.map((v,i)=>v/A[i][i]);
+}
+
+function applyFlatten(){
+  if(!loaded||!flatQ) return;
+  const q=orderQuad(flatQ);
+  if(!quadValid(q,img.width,img.height)){ flatMsg('Corners do not form a valid card shape', true); return; }
+  flatMsg('Flattening…');
+  setTimeout(()=>{
+    const src=flatSourceCanvas(), SW=src.width, SH=src.height;
+    const S=src.getContext('2d').getImageData(0,0,SW,SH).data;
+    const len=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y);
+    const wAvg=(len(q[0],q[1])+len(q[3],q[2]))/2, hAvg=(len(q[0],q[3])+len(q[1],q[2]))/2;
+    const portrait=hAvg>=wAvg, ratio=portrait?CARD_RATIO:1/CARD_RATIO; // H/W
+    let outW=Math.max(wAvg,hAvg/ratio), outH=outW*ratio;
+    const cap=4000/Math.max(outW,outH); if(cap<1){outW*=cap;outH*=cap;}
+    outW=Math.round(outW); outH=Math.round(outH);
+    const dst=[{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}];
+    const Hm=homography(dst,q);  // inverse map: output pixel → source pixel
+    if(!Hm){ flatMsg('Could not compute perspective transform', true); return; }
+    const [h0,h1,h2,h3,h4,h5,h6,h7]=Hm;
+    const oc=document.createElement('canvas'); oc.width=outW; oc.height=outH;
+    const ox=oc.getContext('2d'), out=ox.createImageData(outW,outH), O=out.data;
+    for(let y=0;y<outH;y++){
+      const yc=y+.5;
+      for(let x=0;x<outW;x++){
+        const xc=x+.5, den=h6*xc+h7*yc+1;
+        const sx=(h0*xc+h1*yc+h2)/den-.5, sy=(h3*xc+h4*yc+h5)/den-.5;
+        let xi=Math.floor(sx), yi=Math.floor(sy);
+        const fx=sx-xi, fy=sy-yi;
+        if(xi<0){xi=0;} if(yi<0){yi=0;} if(xi>SW-2) xi=SW-2; if(yi>SH-2) yi=SH-2;
+        const i00=(yi*SW+xi)*4, i10=i00+4, i01=i00+SW*4, i11=i01+4, o=(y*outW+x)*4;
+        const w00=(1-fx)*(1-fy), w10=fx*(1-fy), w01=(1-fx)*fy, w11=fx*fy;
+        O[o]  =S[i00]*w00+S[i10]*w10+S[i01]*w01+S[i11]*w11;
+        O[o+1]=S[i00+1]*w00+S[i10+1]*w10+S[i01+1]*w01+S[i11+1]*w11;
+        O[o+2]=S[i00+2]*w00+S[i10+2]*w10+S[i01+2]*w01+S[i11+2]*w11;
+        O[o+3]=255;
+      }
+    }
+    ox.putImageData(out,0,0);
+
+    const maxAdj=flatAutoQ ? Math.max(...q.map((p,i)=>{
+      const a=orderQuad(flatAutoQ)[i]; return Math.hypot(p.x-a.x,p.y-a.y);
+    })) : null;
+    const flatInfo={
+      applied:true, auto_detected:flatAuto,
+      manually_adjusted: flatAuto ? maxAdj>1 : true,
+      max_manual_adjust_px: maxAdj!==null?+maxAdj.toFixed(1):null,
+      source_image:{width:SW,height:SH},
+      source_straighten_deg:imgAngle,
+      source_quad_px:q.map((p,i)=>({corner:['TL','TR','BR','BL'][i],x:+p.x.toFixed(1),y:+p.y.toFixed(1)})),
+      output_px:{width:outW,height:outH}
+    };
+
+    saveState();
+    const ni=new Image();
+    ni.onload=()=>{
+      img=ni; imgAngle=0;
+      document.getElementById('strSlider').value=0;
+      document.getElementById('strNum').value='0.00';
+      document.getElementById('strLbl').textContent='+0.00°';
+      const ref=getEffectiveRef(activeSide);
+      lineLocks={oL:false,oR:false,oT:false,oB:false,iL:false,iR:false,iT:false,iB:false};
+      L={oL:0,oR:outW,oT:0,oB:outH,
+         iL:outW*ref.L/100, iR:outW*(1-ref.R/100), iT:outH*ref.T/100, iB:outH*(1-ref.B/100),
+         iLa:0,iRa:0,iTa:0,iBa:0, flat:flatInfo};
+      flatQ=null; flatAutoQ=null; flatSel=null;
+      setupCanvas(); setMode('lines');
+      flatMsg('');
+    };
+    ni.src=oc.toDataURL('image/png');
+  },30);
+}
+
+function cancelFlatten(){ flatQ=null; flatAutoQ=null; flatSel=null; flatDrag=null; setMode('lines'); }
+
+// ── Interaction ──
+function flatHit(x,y){
+  if(!flatQ) return null;
+  for(let i=0;i<4;i++){ const c=i2c(flatQ[i].x,flatQ[i].y); if(Math.hypot(x-c.x,y-c.y)<=16) return {type:'c',i}; }
+  for(let i=0;i<4;i++){
+    const a=flatQ[i],b=flatQ[(i+1)%4], m=i2c((a.x+b.x)/2,(a.y+b.y)/2);
+    if(Math.hypot(x-m.x,y-m.y)<=14) return {type:'e',i};
+  }
+  return null;
+}
+function flatDown(x,y){
+  const h=flatHit(x,y);
+  if(h){
+    flatDrag={...h,start:c2i(x,y),orig:flatQ.map(p=>({...p}))};
+    if(h.type==='c') flatSel=h.i;
+    return true;
+  }
+  return false;
+}
+function flatMove(x,y){
+  if(!flatDrag) return false;
+  const p=c2i(x,y), dx=p.x-flatDrag.start.x, dy=p.y-flatDrag.start.y, o=flatDrag.orig;
+  if(flatDrag.type==='c'){ flatQ[flatDrag.i]={x:o[flatDrag.i].x+dx,y:o[flatDrag.i].y+dy}; }
+  else { const i=flatDrag.i,j=(i+1)%4;
+    flatQ[i]={x:o[i].x+dx,y:o[i].y+dy}; flatQ[j]={x:o[j].x+dx,y:o[j].y+dy}; }
+  return true;
+}
+function flatKey(e){
+  if(mode!=='flatten'||flatSel===null||!flatQ) return false;
+  const t=e.target&&e.target.tagName; if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA') return false;
+  const st=e.shiftKey?10:1, d={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,-st],ArrowDown:[0,st]}[e.key];
+  if(!d) return false;
+  e.preventDefault(); flatQ[flatSel].x+=d[0]; flatQ[flatSel].y+=d[1]; return true;
+}
+
+// ── Rendering ──
+function drawFlatOverlay(){
+  if(!flatQ) return;
+  const CW=canvas.width,CH=canvas.height;
+  const P=flatQ.map(p=>i2c(p.x,p.y));
+  // clean snapshot of the photo (before overlay) for the precision loupe
+  let snap=null;
+  if(flatDrag&&flatDrag.type==='c'){
+    snap=document.createElement('canvas'); snap.width=CW; snap.height=CH;
+    snap.getContext('2d').drawImage(canvas,0,0);
+  }
+  ctx.save();
+  // dim outside the quad
+  ctx.beginPath(); ctx.rect(RS,RS,CW-RS,CH-RS);
+  ctx.moveTo(P[0].x,P[0].y); for(let i=1;i<4;i++) ctx.lineTo(P[i].x,P[i].y); ctx.closePath();
+  ctx.fillStyle='rgba(13,13,13,.45)'; ctx.fill('evenodd');
+  // extended edge guides (show alignment past the rounded corners)
+  ctx.setLineDash([5,4]); ctx.lineWidth=1; ctx.strokeStyle='rgba(255,205,0,.7)';
+  for(let i=0;i<4;i++){
+    const a=P[i],b=P[(i+1)%4], dx=b.x-a.x, dy=b.y-a.y, l=Math.hypot(dx,dy)||1, ex=dx/l*40, ey=dy/l*40;
+    ctx.beginPath(); ctx.moveTo(a.x-ex,a.y-ey); ctx.lineTo(b.x+ex,b.y+ey); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // quad edges
+  ctx.beginPath(); ctx.moveTo(P[0].x,P[0].y); for(let i=1;i<4;i++) ctx.lineTo(P[i].x,P[i].y); ctx.closePath();
+  ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=4; ctx.stroke();
+  ctx.strokeStyle='#FFCD00'; ctx.lineWidth=2; ctx.stroke();
+  // edge midpoint handles
+  for(let i=0;i<4;i++){
+    const a=P[i],b=P[(i+1)%4], mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const hot=(flatHover&&flatHover.type==='e'&&flatHover.i===i)||(flatDrag&&flatDrag.type==='e'&&flatDrag.i===i);
+    ctx.fillStyle=hot?'#FFCD00':'#fff'; ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=1.5;
+    ctx.fillRect(mx-5,my-5,10,10); ctx.strokeRect(mx-5,my-5,10,10);
+  }
+  // corner handles
+  P.forEach((c,i)=>{
+    const hot=flatSel===i||(flatHover&&flatHover.type==='c'&&flatHover.i===i);
+    ctx.beginPath(); ctx.arc(c.x,c.y,hot?9:7,0,Math.PI*2);
+    ctx.fillStyle=hot?'#FFCD00':'rgba(255,255,255,.9)'; ctx.fill();
+    ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(c.x-4,c.y); ctx.lineTo(c.x+4,c.y); ctx.moveTo(c.x,c.y-4); ctx.lineTo(c.x,c.y+4); ctx.stroke();
+  });
+  ctx.restore();
+
+  // loupe while dragging a corner (precision placement)
+  if(snap){
+    const i=flatDrag.i, c=P[i], LR=60, Z=5, sr=LR/Z;
+    let lx=c.x-100, ly=c.y-100; if(lx-LR<RS) lx=c.x+100; if(ly-LR<RS) ly=c.y+100;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(lx,ly,LR,0,Math.PI*2); ctx.clip();
+    ctx.fillStyle='#fff'; ctx.fillRect(lx-LR,ly-LR,LR*2,LR*2);
+    let mp;
+    if(!imgAngle){
+      // sample the full-resolution photo directly: 1 image px = 3 screen px
+      const q=flatQ[i], IZ=3, ir=LR/IZ;
+      ctx.imageSmoothingEnabled=true;
+      ctx.drawImage(img,q.x-ir,q.y-ir,ir*2,ir*2,lx-LR,ly-LR,LR*2,LR*2);
+      mp=p=>({x:lx+(p.x-q.x)*IZ, y:ly+(p.y-q.y)*IZ});
+    } else {
+      ctx.imageSmoothingEnabled=false;
+      ctx.drawImage(snap,c.x-sr,c.y-sr,sr*2,sr*2,lx-LR,ly-LR,LR*2,LR*2);
+      mp=p=>{const s=i2c(p.x,p.y);return {x:lx+(s.x-c.x)*Z, y:ly+(s.y-c.y)*Z};};
+    }
+    // the two edges meeting at this corner, magnified
+    const a=mp(flatQ[(i+3)%4]), b=mp(flatQ[(i+1)%4]);
+    ctx.strokeStyle='#FFCD00'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(lx,ly); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(lx,ly,LR,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='rgba(13,13,13,.6)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(lx-6,ly); ctx.lineTo(lx+6,ly); ctx.moveTo(lx,ly-6); ctx.lineTo(lx,ly+6); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+
+// ── Search-text parsing: "name + set" / "name + number" / year ──
+function csParse(text){
+  let t=' '+text.trim()+' ', num=null, total=null, year=null;
+  const nm=t.match(/\s#?([a-z]{0,4}\d{1,3}[a-z]?)\s*\/\s*([a-z]{0,4}\d{1,3})(?=\s)/i);
+  if(nm){ num=nm[1]; total=nm[2]; t=t.replace(nm[0],' '); }
+  const ym=t.match(/\s((?:19|20)\d{2})(?=\s)/);
+  if(ym){ year=ym[1]; t=t.replace(ym[0],' '); }
+  if(!num){
+    const n2=t.match(/\s#?([a-z]{0,4}\d{1,3}[a-z]?)(?=\s*$)/i) || t.match(/\s#([a-z]{0,4}\d{1,3}[a-z]?)(?=\s)/i);
+    if(n2){ num=n2[1]; t=t.replace(n2[0],' '); }
+  }
+  const words=t.replace(/[^\p{L}\p{N}'’.\-\s]/gu,' ').split(/\s+/).filter(Boolean);
+  return {words,num,total,year};
+}
+const csNorm=n=>String(n||'').toLowerCase().replace(/^([a-z]*)0+(?=\d)/,'$1');
+const csLow=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[’]/g,"'");
+
+
+// ════════════════════════════════════════════
+//  TEACH — learn border geometry without exporting
+// ════════════════════════════════════════════
+const TEACH_KEY='visionex_teach_v1';
+let teachMem=null;              // fallback when localStorage is unavailable
+const lastAuto={front:null,back:null};   // what auto-detect produced, per side (border %)
+
+function teachLoad(){
+  try{ const s=localStorage.getItem(TEACH_KEY); if(s) return JSON.parse(s); }catch(e){}
+  return teachMem||{version:1,samples:[]};
+}
+function teachSave(d){
+  teachMem=d;
+  try{ localStorage.setItem(TEACH_KEY,JSON.stringify(d)); return true; }catch(e){ return false; }
+}
+function bordersPct(Ld){
+  const cw=Ld.oR-Ld.oL, ch=Ld.oB-Ld.oT;
+  if(!(cw>0&&ch>0)) return null;
+  return { L:(Ld.iL-Ld.oL)/cw*100, R:(Ld.oR-Ld.iR)/cw*100, T:(Ld.iT-Ld.oT)/ch*100, B:(Ld.oB-Ld.iB)/ch*100 };
+}
+const r3=v=>v==null?null:+(+v).toFixed(3);
+const setKey=s=>csLow(s).replace(/[^a-z0-9]/g,'');
+
+// Learned reference for a side (+ set when known). Uses the built-in prior as 2 pseudo-samples.
+function learnedRef(side, setName){
+  const d=teachLoad(), sk=setKey(setName||'');
+  const all=d.samples.filter(s=>s.side===side);
+  const inSet=sk?all.filter(s=>setKey(s.set)===sk):[];
+  const pool=inSet.length?inSet:all;
+  const prior=INNER_REF[side]||INNER_REF.front, PW=pool===inSet&&inSet.length?0:2;
+  const stat=f=>{
+    const vals=pool.map(f), n=vals.length+PW, pv=f(prior);
+    const mean=(vals.reduce((a,b)=>a+b,0)+pv*PW)/(n||1);
+    const sd=vals.length>1?Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/(vals.length-1)):null;
+    return {mean,sd};
+  };
+  const pick=k=>s=>s[k];
+  return {
+    L:stat(pick('L')).mean, R:stat(pick('R')).mean, T:stat(pick('T')).mean, B:stat(pick('B')).mean,
+    LR:stat(s=>s.L+s.R), TB:stat(s=>s.T+s.B),
+    n:pool.length, scope:inSet.length?'set':(all.length?'side':'default')
+  };
+}
+
+function teachTool(){
+  if(!loaded) return;
+  flushActiveSide();
+  const d=teachLoad();
+  const name=document.getElementById('fName').value.trim(), set=document.getElementById('fSet').value.trim();
+  const num=document.getElementById('fNum').value.trim(), year=document.getElementById('fYear').value.trim();
+  let taught=0, skipped=[];
+  ['front','back'].forEach(side=>{
+    const sd=sideData[side]; if(!sd||!sd.loaded) return;
+    const b=bordersPct(sd.L);
+    if(!b||[b.L,b.R,b.T,b.B].some(v=>!(v>0.2&&v<20))){ skipped.push(side); return; }
+    const c=calc2(sd.L,side);
+    const ident=currentCard?currentCard.id:(name||set||num?[name,set,num].map(setKey).join('|'):'');
+    const key=(ident||('anon-'+Date.now()))+'::'+side;
+    const sample={ key, side, name, set, number:num, year, tcg_id:currentCard?currentCard.id:null,
+      L:r3(b.L), R:r3(b.R), T:r3(b.T), B:r3(b.B),
+      lr_ratio:`${c.lP}/${c.rP}`, tb_ratio:`${c.tP}/${c.bP}`,
+      grade:String((gNumT(c.lrG.g)<=gNumT(c.tbG.g)?c.lrG:c.tbG).g),
+      auto: lastAuto[side] ? {L:r3(lastAuto[side].L),R:r3(lastAuto[side].R),T:r3(lastAuto[side].T),B:r3(lastAuto[side].B)} : null,
+      flatten: sd.L.flat ? {auto_detected:sd.L.flat.auto_detected, manually_adjusted:sd.L.flat.manually_adjusted, max_manual_adjust_px:sd.L.flat.max_manual_adjust_px} : null,
+      taught_at:new Date().toISOString() };
+    const i=d.samples.findIndex(s=>s.key===key);
+    if(i>=0) d.samples[i]=sample; else d.samples.push(sample);
+    taught++;
+  });
+  const ok=teachSave(d);
+  if(!taught){ teachStatus('Nothing taught — set the inner and outer lines first', true); return; }
+  teachStatus(`Learned ${taught} side${taught>1?'s':''}`+(name||set?'':' · add card name/set for set-specific learning')+(ok?'':' · browser storage blocked: export to keep'), !ok);
+  updateTeachStats();
+}
+const gNumT=g=>g==='10P'?10.5:Number(g);
+
+function teachStatus(msg,isErr){
+  const el=document.getElementById('teachStatus'); if(!el) return;
+  el.textContent=msg; el.className='export-status'+(isErr?' err':''); el.style.display='block';
+  clearTimeout(teachStatus._t); teachStatus._t=setTimeout(()=>{el.style.display='none';},4500);
+}
+
+function updateTeachStats(){
+  const el=document.getElementById('teachStats'); if(!el) return;
+  const s=teachLoad().samples, f=s.filter(x=>x.side==='front').length, b=s.length-f;
+  const set=document.getElementById('fSet').value.trim();
+  const inSet=set?s.filter(x=>setKey(x.set)===setKey(set)).length:0;
+  // auto-detect accuracy from samples where we know what auto-detect said
+  const errs=[]; s.forEach(x=>{ if(x.auto) ['L','R','T','B'].forEach(k=>errs.push(Math.abs(x.auto[k]-x[k]))); });
+  const acc=errs.length?` · auto-detect avg error ${(errs.reduce((a,v)=>a+v,0)/errs.length).toFixed(2)}%`:'';
+  el.innerHTML=s.length
+    ? `Learned from <b>${s.length}</b> side${s.length>1?'s':''} (${f} front · ${b} back)${set?` · this set: <b>${inSet}</b>`:''}${acc}`
+    : 'Not trained yet — Teach after confirming the lines on a card';
+}
+
+function exportTeach(){
+  const d=teachLoad();
+  if(!d.samples.length&&!Object.keys(_loadLearnedRef()).length){ teachStatus('Nothing learned yet', true); return; }
+  const blob=new Blob([JSON.stringify({...d,line_lock_learning:_loadLearnedRef(),exported_at:new Date().toISOString(),tool:'VISION ex'},null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=new Date().toISOString().slice(0,10)+'-vision-ex-training-data.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+function importTeach(file){
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      const inc=JSON.parse(fr.result); if(!inc||!Array.isArray(inc.samples)) throw 0;
+      const d=teachLoad(); let added=0, updated=0;
+      inc.samples.forEach(s=>{
+        if(!s||!s.key||!['front','back'].includes(s.side)||[s.L,s.R,s.T,s.B].some(v=>typeof v!=='number')) return;
+        const i=d.samples.findIndex(x=>x.key===s.key);
+        if(i<0){ d.samples.push(s); added++; }
+        else if(String(s.taught_at)>String(d.samples[i].taught_at)){ d.samples[i]=s; updated++; }
+      });
+      if(inc.line_lock_learning&&typeof inc.line_lock_learning==='object'){ // keep the larger tally per line
+        const cur=_loadLearnedRef();
+        Object.entries(inc.line_lock_learning).forEach(([side,keys])=>{ if(!keys) return; cur[side]=cur[side]||{};
+          Object.entries(keys).forEach(([k,v])=>{ if(v&&typeof v.count==='number'&&(!cur[side][k]||v.count>cur[side][k].count)) cur[side][k]=v; }); });
+        _saveLearnedRef(cur);
+      }
+      teachSave(d); updateTeachStats(); teachStatus(`Imported ${added} new · ${updated} updated`);
+    }catch(e){ teachStatus('Not a VISION ex training file', true); }
+  };
+  fr.readAsText(file);
+}
+function resetTeach(){
+  const n=teachLoad().samples.length; if(!n){ teachStatus('Nothing to reset'); return; }
+  if(!confirm(`Delete all ${n} learned samples from this browser? Export first if you want to keep them.`)) return;
+  teachSave({version:1,samples:[]}); updateTeachStats(); teachStatus('Learned data cleared');
+}
+
+// Apply learned border totals to an auto-detect result (fractions of image).
+// Left+right (and top+bottom) border total is fixed by the print run; individual
+// edges move with centering — so a bad edge is rebuilt from the good one + learned total.
+function applyLearnedBorders(o, inn, ref){
+  let fixed=0;
+  const fix=(aKey,bKey,totStat,span,lo,hi)=>{
+    if(!totStat||ref.n<2) return;
+    const a=inn[aKey], b=inn[bKey], tot=a+b, mean=totStat.mean;
+    const tol=Math.max((totStat.sd||0)*3, mean*0.18, 0.6);
+    if(Math.abs(tot-mean)<=tol) return;
+    const okA=a>=mean*0.2&&a<=mean*0.8, okB=b>=mean*0.2&&b<=mean*0.8;
+    if(okA&&!okB){ inn[bKey]=mean-a; fixed++; }
+    else if(okB&&!okA){ inn[aKey]=mean-b; fixed++; }
+    else { // both plausible or both bad — keep the one closer to its learned mean
+      const da=Math.abs(a-ref[aKey]), db=Math.abs(b-ref[bKey]);
+      if(okA&&okB){ if(da>db) inn[aKey]=mean-b; else inn[bKey]=mean-a; }
+      else { inn[aKey]=ref[aKey]; inn[bKey]=ref[bKey]; }
+      fixed++;
+    }
+  };
+  fix('L','R',ref.LR); fix('T','B',ref.TB);
+  return fixed;
+}
+
+
+// ════════════════════════════════════════════
 //  ROUNDED RECT HELPER
 // ════════════════════════════════════════════
 function roundedRectPath(ctx, x, y, w, h, r) {
@@ -3748,6 +4495,8 @@ function drawCanvas(){
   ctx.translate(imgCX,imgCY);ctx.rotate(rad);ctx.translate(-imgCX,-imgCY);
   ctx.drawImage(img,iX,iY,iW,iH);
   ctx.restore(); // end rotation — everything below is unrotated
+
+  if(mode==='flatten'){ drawFlatOverlay(); drawRulers(); return; }
 
   // Pre-compute canvas positions (no rotation applied)
   const oLx=i2c(L.oL,0).x,oRx=i2c(L.oR,0).x;
@@ -4267,7 +5016,7 @@ function openReport(){
 
   // ── Section 01 ────────────────────────────────────────────────────────────
   if(bothSides){
-    document.getElementById('rptImgTitle').textContent='Card Images — Front & Back Analysis';
+    document.getElementById('rptImgTitle').textContent='Card Images — Front & Back Analysis'+(((frontData&&frontData.L.flat)||(backData&&backData.L.flat))?' · Perspective Corrected':'');
     const fOv=worstOf(fC2), bOv=worstOf(bC2);
     const fGC=gc(fOv.g), bGC=gc(bOv.g);
     // 1.57" at screen resolution; width derived from card physical ratio 63.5:88.9
@@ -4325,7 +5074,7 @@ function openReport(){
     const lrC=gc(c.lrG.g), tbC=gc(c.tbG.g), ctrC=gc(ctrGrade.g), ovrC=gc(overallG);
     const D=diagDirs(c);
     const sCanvas=buildAnnotatedCanvas(img,{...L},defects,420);
-    document.getElementById('rptImgTitle').textContent='Card Image — Annotated Analysis View';
+    document.getElementById('rptImgTitle').textContent='Card Image — Annotated Analysis View'+(L.flat?' · Perspective Corrected':'');
     document.getElementById('rptImgSection').innerHTML=`
       <div class="rpt-s-row">
         <div class="rpt-s-thumb" id="rptSingleThumb">
@@ -4569,7 +5318,7 @@ function deactivateUI() {
   document.getElementById('notesSec').style.display='none';
   ['autoBtn','resetBtn','btnDef','btnStr','rotCCW','rotCW','btnCrop','btnCropCard',
    'gridBtn','lockBtn','clBtn','rptBtn','recenterBtn','exportPNGBtn','exportJSONBtn',
-   'clearBtn','undoBtn','redoBtn','btnTilt','btnScanDefects'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
+   'clearBtn','undoBtn','redoBtn','btnTilt','btnScanDefects','btnFlat','teachBtn'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
   renderDefList();
   ctx.clearRect(0,0,canvas.width,canvas.height);
   document.getElementById('cvFoot').textContent='Upload a card image to begin analysis';
@@ -4632,7 +5381,7 @@ function saveSession(){
 
     // Scale all pixel coordinates by the compression ratio
     const sL = {};
-    Object.keys(sd.L).forEach(k => { sL[k] = sd.L[k] * scale; });
+    Object.keys(sd.L).forEach(k => { sL[k] = /^[oi][LRTB]$/.test(k) ? sd.L[k] * scale : sd.L[k]; });
 
     session.sides[side] = {
       loaded:   true,
@@ -4902,7 +5651,8 @@ function buildCoordsData(sideKey, pngFilename) {
       right:  +(Ld.iRa||0).toFixed(3),
       top:    +(Ld.iTa||0).toFixed(3),
       bottom: +(Ld.iBa||0).toFixed(3)
-    }
+    },
+    perspective_correction: Ld.flat ? Ld.flat : { applied:false }
   };
 }
 
@@ -5255,6 +6005,8 @@ if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 })();
+
+updateTeachStats();
 </script>
 </body>
 </html>
