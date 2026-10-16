@@ -1178,6 +1178,7 @@ body{
       <div id="flatCtrl" style="display:none;align-items:center;gap:4px;flex-wrap:wrap;">
         <button class="tb-btn" onclick="flatAutoDetect()" title="Re-run edge detection">Detect</button>
         <button class="tb-btn" onclick="flatFromLines()" title="Start from the outer card lines">From Lines</button>
+        <button class="tb-btn" onclick="flatSnap()" title="Lock the rounded card outline (edges + corner arcs) onto the photo with sub-pixel precision">Snap</button>
         <button class="tb-btn" onclick="applyFlatten()" style="background:#FFCD00;color:#0D0D0D;border-color:#0D0D0D;">Apply</button>
         <button class="tb-btn" onclick="cancelFlatten()">Cancel</button>
         <span id="flatMsg" style="font-family:var(--font-cd);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--label);padding:0 4px;"></span>
@@ -3652,7 +3653,7 @@ function setFoot(){
   if(mode==='straighten') el.innerHTML='<span class="fc">Straighten mode</span><span class="fd">—</span>Drag slider or use − / + for 0.01° precision · ↺ resets to 0°';
   else if(mode==='crop') el.innerHTML='<span class="fc">Crop mode</span><span class="fd">—</span>Click and drag to draw a crop region · Apply to bake';
   else if(mode==='defect') el.innerHTML='<span style="color:var(--defcol);font-weight:700">Defect mode</span><span class="fd">—</span>Draw circles around defects · Drag to move · Right-click to remove';
-  else if(mode==='flatten') el.innerHTML='<span class="fc">Flatten mode</span><span class="fd">—</span>Drag corners (circles) or whole edges (squares) onto the card · Align the straight edges, not the rounded corners · Arrow keys nudge the selected corner (Shift = 10px) · Apply to warp';
+  else if(mode==='flatten') el.innerHTML='<span class="fc">Flatten mode</span><span class="fd">—</span>Drag corners (circles) or whole edges (squares) onto the card · Line the yellow rounded outline up with the card silhouette, or place corners roughly and press Snap · Arrow keys nudge the selected corner (Shift = 10px) · Apply to warp';
   else if(mode==='tilt') el.innerHTML='<span class="fc">Tilt mode</span><span class="fd">—</span>Click any border, inner or outer, then drag slider or use − / + for 0.01° precision · Rotates that line only · ↺ resets to 0°';
   else el.innerHTML='<span class="fc">Blue lines</span><span class="fd">—</span>L/R borders<span class="fd">&nbsp;·&nbsp;</span><span class="mc">Magenta lines</span><span class="fd">—</span>T/B borders<span class="fd">&nbsp;·&nbsp;</span>Scroll to zoom · Drag to pan<span class="fd">&nbsp;·&nbsp;</span>Shift+drag snaps to PSA ratios<span class="fd">&nbsp;·&nbsp;</span>Alt for loupe<span class="fd">&nbsp;·&nbsp;</span>Right-click (long-press) a line to lock it';
 }
@@ -3861,6 +3862,7 @@ function quadFromLines(){
 }
 
 function flatFromLines(){
+  flatFit=null;
   flatQ=quadFromLines(); flatAuto=false; flatAutoQ=null; flatSel=null;
   flatMsg('Using outer card lines — drag corners to adjust');
 }
@@ -3923,7 +3925,7 @@ function flatAutoDetect(){
       const q=detectCardQuad();
       if(q){
         flatQ=q; flatAutoQ=q.map(p=>({...p})); flatAuto=true; flatSel=null;
-        flatMsg('Edges detected — drag corners or edges to fine-tune, then Apply');
+        flatMsg(flatFit?`Outline fitted ±${flatFit.residual_px}px (${flatFit.points} points incl. ${flatFit.arc_points} on rounded corners) — check, then Apply`:'Edges detected — drag corners or edges to fine-tune, then Apply');
       } else {
         flatFromLines();
         flatMsg('No clear card edges found (already cropped, sideways, or low contrast) — drag corners manually', true);
@@ -4009,13 +4011,13 @@ function detectCardQuad(){
 
   // 5. Edge samples from the middle 70% of each side (avoids rounded corners)
   const Lp=[],Rp=[],Tp=[],Bp=[];
-  for(let y=Math.round(y0+bh*0.15); y<=y1-bh*0.15; y++){
+  for(let y=Math.round(y0+bh*0.07); y<=y1-bh*0.07; y++){
     let l=-1,r=-1;
     for(let x=x0;x<=x1;x++) if(lab[y*w+x]===bestLab){l=x;break;}
     for(let x=x1;x>=x0;x--) if(lab[y*w+x]===bestLab){r=x+1;break;}
     if(l>=0){Lp.push({x:l,y:y+.5});Rp.push({x:r,y:y+.5});}
   }
-  for(let x=Math.round(x0+bw*0.15); x<=x1-bw*0.15; x++){
+  for(let x=Math.round(x0+bw*0.09); x<=x1-bw*0.09; x++){
     let t=-1,b=-1;
     for(let y=y0;y<=y1;y++) if(lab[y*w+x]===bestLab){t=y;break;}
     for(let y=y1;y>=y0;y--) if(lab[y*w+x]===bestLab){b=y+1;break;}
@@ -4028,6 +4030,7 @@ function detectCardQuad(){
   // 6. Sub-pixel refinement at full resolution (gradient peak along each edge normal)
   const full=src.getContext('2d').getImageData(0,0,SW,SH).data;
   const lum=(x,y)=>{
+    x-=0.5; y-=0.5; // pixel-centre convention
     const xi=Math.max(0,Math.min(SW-2,x|0)), yi=Math.max(0,Math.min(SH-2,y|0));
     const fx=x-xi, fy=y-yi, g=(xx,yy)=>{const i=(yy*SW+xx)*4;return .299*full[i]+.587*full[i+1]+.114*full[i+2];};
     return g(xi,yi)*(1-fx)*(1-fy)+g(xi+1,yi)*fx*(1-fy)+g(xi,yi+1)*(1-fx)*fy+g(xi+1,yi+1)*fx*fy;
@@ -4060,7 +4063,13 @@ function detectCardQuad(){
     T:refine(lines.T,c0[0].x,c0[1].x), B:refine(lines.B,c0[3].x,c0[2].x)
   };
   const q=[intersect(lines.L,lines.T),intersect(lines.R,lines.T),intersect(lines.R,lines.B),intersect(lines.L,lines.B)];
-  return quadValid(q,SW,SH)?q:null;
+  if(!quadValid(q,SW,SH)) return null;
+  // Final precision pass: fit the true rounded-rectangle outline (edges + corner arcs)
+  flatFit=null;
+  const fit=fitRoundedOutline(q,full,SW,SH,Math.ceil(2.5/s)+2);
+  const qw=Math.hypot(q[1].x-q[0].x,q[1].y-q[0].y);
+  if(fit&&quadValid(fit.q,SW,SH)&&fit.q.every((p,i)=>Math.hypot(p.x-q[i].x,p.y-q[i].y)<qw*0.03)){ flatFit=fit.stats; return fit.q; }
+  return q;
 }
 
 // Solve homography H mapping (x,y) → (u,v) for 4 point pairs
@@ -4081,6 +4090,134 @@ function homography(srcPts, dstPts){
     }
   }
   return bv.map((v,i)=>v/A[i][i]);
+}
+
+// ── Rounded-outline model ─────────────────────────────────────────────
+// A Pokémon card (front AND back) is a 63.5 × 88.9 mm rectangle with 3.22 mm
+// rounded corners. The corner handles are the *virtual* sharp corners (where the
+// straight edges would meet); the real silhouette is that rounded rectangle seen
+// through the camera's perspective. Mapping the true outline through the current
+// homography lets us (1) draw exactly what should line up with the card, arcs
+// included, and (2) fit all of it — straight edges AND corner arcs — to the photo.
+const CARD_MM_RECT=[{x:0,y:0},{x:CARD_W_MM,y:0},{x:CARD_W_MM,y:CARD_H_MM},{x:0,y:CARD_H_MM}];
+function outlineSamplesMM(nEdge, nArc){
+  const W=CARD_W_MM, H=CARD_H_MM, r=CARD_OUTER_CORNER_MM, pts=[];
+  const edge=(x0,y0,x1,y1,nx,ny,kind)=>{ for(let i=0;i<nEdge;i++){ const t=(i+.5)/nEdge; pts.push({x:x0+(x1-x0)*t,y:y0+(y1-y0)*t,nx,ny,kind}); } };
+  const arc=(cx,cy,a0)=>{ for(let i=0;i<nArc;i++){ const a=a0+(i+.5)/nArc*Math.PI/2; pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a),nx:Math.cos(a),ny:Math.sin(a),kind:'arc'}); } };
+  edge(r,0,W-r,0,0,-1,'edge');            arc(W-r,r,-Math.PI/2);
+  edge(W,r,W,H-r,1,0,'edge');             arc(W-r,H-r,0);
+  edge(W-r,H,r,H,0,1,'edge');             arc(r,H-r,Math.PI/2);
+  edge(0,H-r,0,r,-1,0,'edge');            arc(r,r,Math.PI);
+  return pts;
+}
+const _OUTLINE_DRAW=outlineSamplesMM(24,12);
+function _hMap(Hm,x,y){ const d=Hm[6]*x+Hm[7]*y+1; return {x:(Hm[0]*x+Hm[1]*y+Hm[2])/d, y:(Hm[3]*x+Hm[4]*y+Hm[5])/d}; }
+// quad (TL,TR,BR,BL, image px) → rounded outline points in image px
+function roundedOutline(q, samples){
+  const Hm=homography(CARD_MM_RECT,q); if(!Hm) return null;
+  return (samples||_OUTLINE_DRAW).map(s=>_hMap(Hm,s.x,s.y));
+}
+function _solveN(A,b){ // Gaussian elimination with partial pivoting
+  const n=b.length; A=A.map(r=>r.slice()); b=b.slice();
+  for(let c=0;c<n;c++){
+    let p=c; for(let r=c+1;r<n;r++) if(Math.abs(A[r][c])>Math.abs(A[p][c])) p=r;
+    [A[c],A[p]]=[A[p],A[c]]; [b[c],b[p]]=[b[p],b[c]];
+    if(Math.abs(A[c][c])<1e-12) return null;
+    for(let r=c+1;r<n;r++){ const f=A[r][c]/A[c][c]; for(let k=c;k<n;k++) A[r][k]-=f*A[c][k]; b[r]-=f*b[c]; }
+  }
+  const x=new Array(n).fill(0);
+  for(let r=n-1;r>=0;r--){ let s=b[r]; for(let k=r+1;k<n;k++) s-=A[r][k]*x[k]; x[r]=s/A[r][r]; }
+  return x;
+}
+// Fit the full rounded outline to the photo: for every outline sample (edges and
+// arcs) find the colour-gradient peak along its normal, then Gauss-Newton-update
+// the 8 corner coordinates so the projected outline lands on those peaks.
+// D = RGBA pixels of the (straightened) source, SW×SH. R0 = initial search radius (px).
+function fitRoundedOutline(q0, D, SW, SH, R0){
+  const S=outlineSamplesMM(60,16);
+  const px=(x,y,c)=>{ // bilinear channel sample — pixel n's value sits at its centre (n+0.5)
+    x-=0.5; y-=0.5;
+    x=Math.max(0,Math.min(SW-1.001,x)); y=Math.max(0,Math.min(SH-1.001,y));
+    const xi=x|0, yi=y|0, fx=x-xi, fy=y-yi, i=(yi*SW+xi)*4+c;
+    return D[i]*(1-fx)*(1-fy)+D[i+4]*fx*(1-fy)+D[i+SW*4]*(1-fx)*fy+D[i+SW*4+4]*fx*fy;
+  };
+  const col=(x,y)=>[px(x,y,0),px(x,y,1),px(x,y,2)];
+  let q=q0.map(p=>({...p})), R=R0, stats=null;
+  const flat=qq=>qq.flatMap(p=>[p.x,p.y]), unflat=v=>[0,2,4,6].map(i=>({x:v[i],y:v[i+1]}));
+  for(let it=0; it<7; it++){
+    const Hm=homography(CARD_MM_RECT,q); if(!Hm) break;
+    const obs=[];
+    for(const s of S){
+      const p=_hMap(Hm,s.x,s.y), p2=_hMap(Hm,s.x+s.nx*0.05,s.y+s.ny*0.05);
+      let nx=p2.x-p.x, ny=p2.y-p.y; const nl=Math.hypot(nx,ny); if(!nl) continue; nx/=nl; ny/=nl;
+      if(p.x<2||p.y<2||p.x>SW-3||p.y>SH-3) continue;
+      const step=0.5, prof=[]; let prev=col(p.x-nx*R,p.y-ny*R);
+      for(let t=-R+step;t<=R+1e-9;t+=step){
+        const c=col(p.x+nx*t,p.y+ny*t);
+        prof.push({t:t-step/2, g:Math.abs(c[0]-prev[0])+Math.abs(c[1]-prev[1])+Math.abs(c[2]-prev[2])});
+        prev=c;
+      }
+      let bi=-1,bg=0; prof.forEach((e,i)=>{ if(e.g>bg){bg=e.g;bi=i;} });
+      if(bi<0||bg<10) continue;
+      let t=prof[bi].t;
+      if(bi>0&&bi<prof.length-1){ const a=prof[bi-1].g,b=prof[bi].g,c=prof[bi+1].g,den=a-2*b+c; if(Math.abs(den)>1e-6) t+=step*0.5*(a-c)/den; }
+      obs.push({s,p,nx,ny,d:t,g:bg});
+    }
+    if(obs.length<40) break;
+    // robust: drop outliers beyond 3×median |offset|
+    const med=[...obs.map(o=>Math.abs(o.d))].sort((a,b)=>a-b)[obs.length>>1];
+    const use=obs.filter(o=>Math.abs(o.d)<=Math.max(0.75,med*3));
+    if(use.length<40) break;
+    // numerical Jacobian of each sample's normal offset w.r.t. the 8 corner coords
+    const v0=flat(q), J=use.map(()=>new Array(8).fill(0)), eps=0.5;
+    for(let k=0;k<8;k++){
+      const v=v0.slice(); v[k]+=eps; const Hk=homography(CARD_MM_RECT,unflat(v)); if(!Hk) continue;
+      use.forEach((o,i)=>{ const pk=_hMap(Hk,o.s.x,o.s.y); J[i][k]=((pk.x-o.p.x)*o.nx+(pk.y-o.p.y)*o.ny)/eps; });
+    }
+    const A=Array.from({length:8},()=>new Array(8).fill(0)), b=new Array(8).fill(0);
+    use.forEach((o,i)=>{ const w=o.s.kind==='arc'?1.5:1; for(let a=0;a<8;a++){ b[a]+=w*J[i][a]*o.d; for(let c=0;c<8;c++) A[a][c]+=w*J[i][a]*J[i][c]; } });
+    for(let a=0;a<8;a++) A[a][a]*=1.02, A[a][a]+=1e-3;
+    const dlt=_solveN(A,b); if(!dlt) break;
+    const mv=Math.max(...dlt.map(Math.abs));
+    q=unflat(v0.map((x,i)=>x+dlt[i]));
+    const rms=Math.sqrt(use.reduce((s,o)=>s+o.d*o.d,0)/use.length);
+    const arcs=use.filter(o=>o.s.kind==='arc').length;
+    stats={points:use.length, arc_points:arcs, residual_px:+rms.toFixed(2), search_px:+R.toFixed(1), iterations:it+1};
+    R=Math.max(1.5,R*0.55);
+    if(mv<0.03&&it>=2) break;
+  }
+  if(!stats) return null;
+  // final residual at the converged quad
+  stats.residual_px=+fitResidual(q,D,SW,SH,S,col).toFixed(2);
+  return {q,stats};
+}
+function fitResidual(q,D,SW,SH,S,col){
+  const Hm=homography(CARD_MM_RECT,q); if(!Hm) return 99; const ds=[];
+  for(const s of S){
+    const p=_hMap(Hm,s.x,s.y), p2=_hMap(Hm,s.x+s.nx*0.05,s.y+s.ny*0.05);
+    let nx=p2.x-p.x, ny=p2.y-p.y; const nl=Math.hypot(nx,ny); if(!nl) continue; nx/=nl; ny/=nl;
+    let best=0,bt=0,prev=col(p.x-nx*2,p.y-ny*2);
+    for(let t=-1.75;t<=2;t+=0.25){ const c=col(p.x+nx*t,p.y+ny*t), g=Math.abs(c[0]-prev[0])+Math.abs(c[1]-prev[1])+Math.abs(c[2]-prev[2]); if(g>best){best=g;bt=t-0.125;} prev=c; }
+    if(best>=10) ds.push(bt);
+  }
+  ds.sort((a,b)=>Math.abs(a)-Math.abs(b)); const k=ds.slice(0,Math.floor(ds.length*0.9));
+  return k.length?Math.sqrt(k.reduce((s,v)=>s+v*v,0)/k.length):99;
+}
+let flatFit=null; // stats from the last outline fit (shown in UI, saved with the flatten record)
+// Manual "Snap": user places corners roughly, the fit locks the rounded outline on precisely
+function flatSnap(){
+  if(!flatQ) return;
+  flatMsg('Fitting rounded outline…');
+  setTimeout(()=>{
+    const src=flatSourceCanvas(), D=src.getContext('2d').getImageData(0,0,src.width,src.height).data;
+    const q=orderQuad(flatQ);
+    const w=(Math.hypot(q[1].x-q[0].x,q[1].y-q[0].y)+Math.hypot(q[2].x-q[3].x,q[2].y-q[3].y))/2;
+    const res=fitRoundedOutline(q,D,src.width,src.height,Math.max(6,w*0.02));
+    if(res&&quadValid(res.q,src.width,src.height)&&res.q.every((p,i)=>Math.hypot(p.x-q[i].x,p.y-q[i].y)<w*0.08)){
+      flatQ=res.q; flatFit=res.stats; flatSel=null;
+      flatMsg(`Snapped to rounded outline · fit ±${res.stats.residual_px}px over ${res.stats.points} points (${res.stats.arc_points} on corners)`);
+    } else flatMsg('Could not lock onto the outline — move the corners closer and try again', true);
+  },20);
 }
 
 function applyFlatten(){
@@ -4131,7 +4268,9 @@ function applyFlatten(){
       source_image:{width:SW,height:SH},
       source_straighten_deg:imgAngle,
       source_quad_px:q.map((p,i)=>({corner:['TL','TR','BR','BL'][i],x:+p.x.toFixed(1),y:+p.y.toFixed(1)})),
-      output_px:{width:outW,height:outH}
+      output_px:{width:outW,height:outH},
+      corner_radius_mm:CARD_OUTER_CORNER_MM,
+      outline_fit: flatFit ? {...flatFit} : null
     };
 
     saveState();
@@ -4178,6 +4317,7 @@ function flatDown(x,y){
 function flatMove(x,y){
   if(!flatDrag) return false;
   const p=c2i(x,y), dx=p.x-flatDrag.start.x, dy=p.y-flatDrag.start.y, o=flatDrag.orig;
+  flatFit=null;
   if(flatDrag.type==='c'){ flatQ[flatDrag.i]={x:o[flatDrag.i].x+dx,y:o[flatDrag.i].y+dy}; }
   else { const i=flatDrag.i,j=(i+1)%4;
     flatQ[i]={x:o[i].x+dx,y:o[i].y+dy}; flatQ[j]={x:o[j].x+dx,y:o[j].y+dy}; }
@@ -4205,7 +4345,8 @@ function drawFlatOverlay(){
   ctx.save();
   // dim outside the quad
   ctx.beginPath(); ctx.rect(RS,RS,CW-RS,CH-RS);
-  ctx.moveTo(P[0].x,P[0].y); for(let i=1;i<4;i++) ctx.lineTo(P[i].x,P[i].y); ctx.closePath();
+  { const OLm=roundedOutline(flatQ), Cm=(OLm||flatQ).map(p=>i2c(p.x,p.y));
+    ctx.moveTo(Cm[0].x,Cm[0].y); for(let i=1;i<Cm.length;i++) ctx.lineTo(Cm[i].x,Cm[i].y); ctx.closePath(); }
   ctx.fillStyle='rgba(13,13,13,.45)'; ctx.fill('evenodd');
   // extended edge guides (show alignment past the rounded corners)
   ctx.setLineDash([5,4]); ctx.lineWidth=1; ctx.strokeStyle='rgba(255,205,0,.7)';
@@ -4214,10 +4355,17 @@ function drawFlatOverlay(){
     ctx.beginPath(); ctx.moveTo(a.x-ex,a.y-ey); ctx.lineTo(b.x+ex,b.y+ey); ctx.stroke();
   }
   ctx.setLineDash([]);
-  // quad edges
+  // virtual sharp quad (construction line through the handles)
   ctx.beginPath(); ctx.moveTo(P[0].x,P[0].y); for(let i=1;i<4;i++) ctx.lineTo(P[i].x,P[i].y); ctx.closePath();
-  ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=4; ctx.stroke();
-  ctx.strokeStyle='#FFCD00'; ctx.lineWidth=2; ctx.stroke();
+  ctx.strokeStyle='rgba(255,205,0,.55)'; ctx.lineWidth=1; ctx.stroke();
+  // true card silhouette: 3.22 mm rounded corners projected through the perspective
+  const OL=roundedOutline(flatQ);
+  if(OL){
+    const C=OL.map(p=>i2c(p.x,p.y));
+    ctx.beginPath(); ctx.moveTo(C[0].x,C[0].y); for(let i=1;i<C.length;i++) ctx.lineTo(C[i].x,C[i].y); ctx.closePath();
+    ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=3.5; ctx.stroke();
+    ctx.strokeStyle='#FFCD00'; ctx.lineWidth=1.6; ctx.stroke();
+  }
   // edge midpoint handles
   for(let i=0;i<4;i++){
     const a=P[i],b=P[(i+1)%4], mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
@@ -4254,11 +4402,14 @@ function drawFlatOverlay(){
       ctx.drawImage(snap,c.x-sr,c.y-sr,sr*2,sr*2,lx-LR,ly-LR,LR*2,LR*2);
       mp=p=>{const s=i2c(p.x,p.y);return {x:lx+(s.x-c.x)*Z, y:ly+(s.y-c.y)*Z};};
     }
-    // the two edges meeting at this corner, magnified
+    // the two edges meeting at this corner (dashed) + the true rounded corner (solid)
     const a=mp(flatQ[(i+3)%4]), b=mp(flatQ[(i+1)%4]);
-    ctx.strokeStyle='#FFCD00'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    ctx.strokeStyle='#FFCD00'; ctx.lineWidth=1; ctx.setLineDash([4,3]);
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(lx,ly); ctx.lineTo(b.x,b.y); ctx.stroke();
     ctx.setLineDash([]);
+    const OLz=roundedOutline(flatQ, outlineSamplesMM(40,24));
+    if(OLz){ const Z2=OLz.map(mp); ctx.beginPath(); ctx.moveTo(Z2[0].x,Z2[0].y); for(let k=1;k<Z2.length;k++) ctx.lineTo(Z2[k].x,Z2[k].y); ctx.closePath();
+      ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=3; ctx.stroke(); ctx.strokeStyle='#FFCD00'; ctx.lineWidth=1.5; ctx.stroke(); }
     ctx.restore();
     ctx.save(); ctx.strokeStyle='#0D0D0D'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(lx,ly,LR,0,Math.PI*2); ctx.stroke();
