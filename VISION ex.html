@@ -957,6 +957,10 @@ body{
       <div class="field"><label>Year</label><input id="fYear" type="text" placeholder="1999"></div>
       <div class="field"><label>Card No.</label><input id="fNum" type="text" placeholder="4/102"></div>
     </div>
+    <div class="field"><label>Variant / Stamp</label>
+      <select id="fVariant" onchange="onVariantChange()"><option value="">— Pick card first —</option></select>
+      <input id="fVariantCustom" type="text" placeholder="Describe stamp, e.g. 'Holon Phantoms prerelease stamp'" style="display:none;margin-top:4px;" oninput="onVariantChange()">
+    </div>
     <div id="autoIdStatus" style="display:none;margin-top:6px;padding:5px 8px;font-family:var(--font-cd);font-size:10px;font-weight:600;letter-spacing:.06em;border-radius:3px;text-align:center;"></div>
     <button type="button" class="tb-btn" style="width:100%;margin-top:6px;" onclick="reidentifyCard()" title="Re-run card identification on the current front image (after adjusting the outer lines)">Identify from image</button>
     <div class="field" style="margin-top:8px;">
@@ -1606,6 +1610,8 @@ async function _dexFull(id) {
            releaseDate: sd && sd.releaseDate ? sd.releaseDate.replace(/-/g, '/') : '' },
     images: { small: c.image ? c.image + '/low.webp' : '' },
     tcgplayer: Object.keys(prices).length ? { updatedAt: tp.updated ? tp.updated.slice(0, 10) : '', prices } : null,
+    dexVariants: c.variants || null,
+    dexVariantsDetailed: Array.isArray(c.variants_detailed) ? c.variants_detailed : null,
     cardmarket: cm && (cm.trend || cm.avg) ? { prices: { trendPrice: cm.trend, averageSellPrice: cm.avg } } : null
   };
 }
@@ -1857,7 +1863,7 @@ function reidentifyCard() {
   autoIdentifyCard(img);
 }
 
-function _setCurrentCard(card) { currentCard = card || null; _priceVer++; }
+function _setCurrentCard(card) { currentCard = card || null; _priceVer++; selectedVariant=null; if (document.getElementById('fVariant')) populateVariants(currentCard); }
 
 // Card Name live search
 (function() {
@@ -4496,7 +4502,7 @@ function teachTool(){
     const c=calc2(sd.L,side);
     const ident=currentCard?currentCard.id:(name||set||num?[name,set,num].map(setKey).join('|'):'');
     const key=(ident||('anon-'+Date.now()))+'::'+side;
-    const sample={ key, side, name, set, number:num, year, tcg_id:currentCard?currentCard.id:null,
+    const sample={ key, side, name, set, number:num, year, tcg_id:currentCard?currentCard.id:null, variant:selectedVariant?selectedVariant.label:'',
       L:r3(b.L), R:r3(b.R), T:r3(b.T), B:r3(b.B),
       lr_ratio:`${c.lP}/${c.rP}`, tb_ratio:`${c.tP}/${c.bP}`,
       grade:String((gNumT(c.lrG.g)<=gNumT(c.tbG.g)?c.lrG:c.tbG).g),
@@ -4986,8 +4992,58 @@ function _tcgVariants(card) {
   return keys.map(k => ({ key:k, label:_VARIANT_LBL[k] || k, ...prices[k] })).filter(v => v.market != null || v.mid != null);
 }
 
+// ── Variants: every printing of the same card number (holo, reverse, 1st Ed., stamped, promo…) ──
+const _STAMP_LBL = s => String(s||'').replace(/[-_]/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
+function cardVariantOptions(card){
+  const out=[], seen=new Set();
+  const add=(key,label,priceKey,extra)=>{ if(seen.has(key)) return; seen.add(key); out.push({key,label,priceKey:priceKey||null,...(extra||{})}); };
+  const prices=(card&&card.tcgplayer&&card.tcgplayer.prices)||{};
+  // detailed list (TCGdex) — includes stamps such as prerelease / league / staff
+  (card&&card.dexVariantsDetailed||[]).forEach(v=>{
+    const base={normal:'Normal',holo:'Holo',reverse:'Reverse Holo',firstEdition:'1st Edition',wPromo:'W Promo'}[v.type]||_STAMP_LBL(v.type);
+    const stamps=[].concat(v.stamp||v.stamps||[]).filter(Boolean);
+    const lbl=base+(v.subtype?' · '+_STAMP_LBL(v.subtype):'')+(stamps.length?' · '+stamps.map(_STAMP_LBL).join(', ')+' stamp':'');
+    const pk=stamps.length?null:({holo:'holofoil',reverse:'reverseHolofoil',normal:'normal',firstEdition:prices['1stEditionHolofoil']?'1stEditionHolofoil':'1stEditionNormal'}[v.type]||null);
+    add('d:'+lbl,lbl,pk&&prices[pk]?pk:null,{stamped:!!stamps.length});
+  });
+  // TCGplayer-priced variants
+  _tcgVariants(card).forEach(v=>add('p:'+v.key,v.label,v.key));
+  // TCGdex simple flags
+  const fl=card&&card.dexVariants||{};
+  if(fl.holo) add('p:holofoil','Holo',prices.holofoil?'holofoil':null);
+  if(fl.normal) add('p:normal','Normal',prices.normal?'normal':null);
+  if(fl.reverse) add('p:reverseHolofoil','Reverse Holo',prices.reverseHolofoil?'reverseHolofoil':null);
+  if(fl.firstEdition) add('d:1st','1st Edition',prices['1stEditionHolofoil']?'1stEditionHolofoil':(prices['1stEditionNormal']?'1stEditionNormal':null));
+  if(fl.wPromo) add('d:wpromo','W Promo stamp',null,{stamped:true});
+  add('custom','Stamped / other variant…',null,{stamped:true,custom:true});
+  return out;
+}
+let selectedVariant=null;
+function populateVariants(card, keep){
+  const sel=document.getElementById('fVariant'); if(!sel) return;
+  const opts=card?cardVariantOptions(card):[];
+  sel.innerHTML=card?opts.map(o=>`<option value="${o.key.replace(/"/g,'&quot;')}">${o.label.replace(/</g,'&lt;')}${o.priceKey?'':(o.custom?'':' (no price data)')}</option>`).join(''):'<option value="">— Pick card first —</option>';
+  sel._opts=opts;
+  if(keep&&opts.some(o=>o.key===keep.key)) sel.value=keep.key;
+  else if(card){ const first=opts.find(o=>o.priceKey)||opts[0]; sel.value=first?first.key:''; }
+  const cust=document.getElementById('fVariantCustom');
+  if(keep&&keep.custom){ sel.value='custom'; cust.value=keep.customText||''; }
+  onVariantChange(true);
+}
+function onVariantChange(silent){
+  const sel=document.getElementById('fVariant'), cust=document.getElementById('fVariantCustom');
+  const o=(sel._opts||[]).find(x=>x.key===sel.value)||null;
+  cust.style.display=o&&o.custom?'':'none';
+  selectedVariant=o?{key:o.key,label:o.custom?(cust.value.trim()||'Stamped'):o.label,priceKey:o.priceKey,stamped:!!o.stamped,custom:!!o.custom,customText:o.custom?cust.value.trim():''}:null;
+  _priceVer++; _priceKey='';
+  if(!silent&&typeof updateUI==='function'){ try{ updateUI(); }catch(e){} }
+  try{ updatePriceUI(window._lastOv); }catch(e){}
+}
+const _tcgSearchUrl=(card,extra)=>'https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q='+encodeURIComponent([card.name,card.number&&card.set&&card.set.printedTotal?card.number+'/'+card.set.printedTotal:card.number,card.set&&card.set.name,extra].filter(Boolean).join(' '));
+
 let _priceKey = '';
 function updatePriceUI(ov) {
+  window._lastOv=ov;
   const box = document.getElementById('priceBox');
   if (!box) return;
   const grade = ov && ov.g != null ? String(ov.g) : '';
@@ -5002,26 +5058,32 @@ function updatePriceUI(ov) {
     sub.textContent = ''; src.textContent = ''; link.style.display = 'none';
     return;
   }
+  // English-market prices only (TCGplayer, USD). Cardmarket (EUR, EU market) is not shown.
   const variants = _tcgVariants(currentCard);
-  const cm = currentCard.cardmarket && currentCard.cardmarket.prices;
-  if (!variants.length && !cm) {
-    main.className = 'price-main muted'; main.textContent = 'No market data for this card';
-    sub.textContent = ''; src.textContent = '';
-  } else {
-    const v = variants[0];
+  const sv = selectedVariant;
+  const v = sv && sv.priceKey ? variants.find(x => x.key === sv.priceKey) : (sv ? null : variants[0]);
+  const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  if (v) {
     main.className = 'price-main';
-    main.textContent = v ? _usd(v.market != null ? v.market : v.mid) : '€' + (cm.trendPrice || cm.averageSellPrice || 0).toFixed(2);
-    const lines = [];
-    if (v) lines.push('Raw · ' + v.label + (v.low != null ? ' · low ' + _usd(v.low) : '') + (v.mid != null ? ' · mid ' + _usd(v.mid) : ''));
-    if (variants.length > 1) lines.push('Also: ' + variants.slice(1, 4).map(x => x.label + ' ' + _usd(x.market != null ? x.market : x.mid)).join(' · '));
-    if (cm && (cm.trendPrice || cm.averageSellPrice)) lines.push('Cardmarket trend €' + (cm.trendPrice || cm.averageSellPrice).toFixed(2));
+    main.textContent = _usd(v.market != null ? v.market : v.mid);
+    const lines = ['Raw · ' + esc(v.label) + ' (English)' + (v.low != null ? ' · low ' + _usd(v.low) : '') + (v.mid != null ? ' · mid ' + _usd(v.mid) : '')];
+    const others = variants.filter(x => x !== v);
+    if (others.length) lines.push('Other printings: ' + others.slice(0, 4).map(x => esc(x.label) + ' ' + _usd(x.market != null ? x.market : x.mid)).join(' · '));
     sub.innerHTML = lines.join('<br>');
-    src.textContent = currentCard.tcgplayer && currentCard.tcgplayer.updatedAt ? 'TCGplayer · ' + currentCard.tcgplayer.updatedAt : '';
+    src.textContent = currentCard.tcgplayer && currentCard.tcgplayer.updatedAt ? 'TCGplayer (USD) · ' + currentCard.tcgplayer.updatedAt : 'TCGplayer (USD)';
+  } else {
+    main.className = 'price-main muted';
+    main.textContent = sv ? 'No English price for ' + sv.label : 'No English market price for this card';
+    const u = _tcgSearchUrl(currentCard, sv && sv.stamped ? (sv.customText || 'stamped') : (sv ? sv.label : ''));
+    const base = variants[0] ? 'Unstamped ' + esc(variants[0].label) + ' ' + _usd(variants[0].market != null ? variants[0].market : variants[0].mid) + '<br>' : '';
+    sub.innerHTML = base + '<a class="price-link" href="' + u + '" target="_blank" rel="noopener">Find this printing on TCGplayer ↗</a>';
+    src.textContent = 'TCGplayer (USD)';
   }
   // Graded value isn't in any free feed — link straight to sold comps for the estimated grade.
   const gl = grade === '10P' ? '10' : grade;
   if (gl) {
-    const q = [currentCard.name, currentCard.number, currentCard.set && currentCard.set.name, 'PSA ' + gl].filter(Boolean).join(' ');
+    const vq = selectedVariant && (selectedVariant.stamped || /reverse|1st/i.test(selectedVariant.label)) ? (selectedVariant.customText || selectedVariant.label.replace(/ ·.*$/,'') + (selectedVariant.stamped && !selectedVariant.customText ? ' stamped' : '')) : '';
+    const q = [currentCard.name, currentCard.number, currentCard.set && currentCard.set.name, vq, 'PSA ' + gl].filter(Boolean).join(' ');
     link.href = 'https://www.ebay.com/sch/i.html?_nkw=' + encodeURIComponent(q) + '&LH_Sold=1&LH_Complete=1';
     link.textContent = 'PSA ' + gl + ' sold comps ↗';
     link.style.display = '';
@@ -5516,7 +5578,8 @@ function saveSession(){
       year: document.getElementById('fYear').value||'',
       num:  document.getElementById('fNum').value||'',
       eReader: isEReaderCard,
-      cardId: currentCard ? currentCard.id : ''
+      cardId: currentCard ? currentCard.id : '',
+      variant: selectedVariant ? {...selectedVariant} : null
     },
     activeSide,
     sides: {}
@@ -5584,10 +5647,11 @@ function loadSession(file){
       document.getElementById('fSet').value  = session.cardInfo.set||'';
       document.getElementById('fYear').value = session.cardInfo.year||'';
       document.getElementById('fNum').value  = session.cardInfo.num||'';
+      window._pendingVariant = session.cardInfo.variant || null;
       setEReaderCard(!!session.cardInfo.eReader);
       if (session.cardInfo.cardId) {
         const cid = session.cardInfo.cardId;
-        _dexFull(cid).then(c => { if (c) _setCurrentCard(c); });
+        _dexFull(cid).then(c => { if (c) { _setCurrentCard(c); if (window._pendingVariant) { populateVariants(c, window._pendingVariant); window._pendingVariant = null; } } });
       } else _setCurrentCard(null);
 
       const sides = Object.keys(session.sides).filter(s=>session.sides[s]&&session.sides[s].loaded);
@@ -5736,6 +5800,7 @@ function buildCoordsData(sideKey, pngFilename) {
       set:    document.getElementById('fSet').value  || '',
       year:   document.getElementById('fYear').value || '',
       number: document.getElementById('fNum').value  || '',
+      variant: selectedVariant ? selectedVariant.label : '',
       side:   sideKey,
       is_ereader: isEReaderCard
     },
