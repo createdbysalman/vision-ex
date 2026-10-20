@@ -2765,10 +2765,19 @@ function runAuto() {
   //     everything downstream (border-color ring, inner-edge windows) needs
   //     to anchor on the REAL edge, not a freshly re-detected one that could
   //     drift from what the user locked in.
-  const oLx=lineLocks.oL ? L.oL*wsx : (scanEdge(sY,bg,0,Math.round(W*.42),true,4,32) ?? Math.round(W*.04));
-  const oRx=lineLocks.oR ? L.oR*wsx : (scanEdge(sY,bg,W-1,Math.round(W*.58),true,4,32) ?? Math.round(W*.96));
-  const oTy=lineLocks.oT ? L.oT*wsy : (scanEdge(sX,bg,0,Math.round(H*.42),false,4,32) ?? Math.round(H*.03));
-  const oBy=lineLocks.oB ? L.oB*wsy : (scanEdge(sX,bg,H-1,Math.round(H*.58),false,4,32) ?? Math.round(H*.97));
+  // Card touching the image edge (photo already cropped / flattened to the card):
+  // the only "background" left is what shows through the rounded corners, so a
+  // scan inward never sees a background→card jump and would latch onto the
+  // border→artwork edge instead. If most scanlines are already "card" right at
+  // the image edge, the outer edge IS the image edge.
+  const touches=(lines,axisIsX,edge)=>{ let n=0;
+    for(const l of lines){ const p=axisIsX?avg([get(edge,l),get(edge+(edge?-1:1),l)]):avg([get(l,edge),get(l,edge+(edge?-1:1))]); if(diff(p,bg)>32) n++; }
+    return n>=lines.length*.8; };
+  const tL=touches(sY,true,0), tR=touches(sY,true,W-1), tT=touches(sX,false,0), tB=touches(sX,false,H-1);
+  const oLx=lineLocks.oL ? L.oL*wsx : tL ? 0 : (scanEdge(sY,bg,0,Math.round(W*.42),true,4,32) ?? Math.round(W*.04));
+  const oRx=lineLocks.oR ? L.oR*wsx : tR ? W : (scanEdge(sY,bg,W-1,Math.round(W*.58),true,4,32) ?? Math.round(W*.96));
+  const oTy=lineLocks.oT ? L.oT*wsy : tT ? 0 : (scanEdge(sX,bg,0,Math.round(H*.42),false,4,32) ?? Math.round(H*.03));
+  const oBy=lineLocks.oB ? L.oB*wsy : tB ? H : (scanEdge(sX,bg,H-1,Math.round(H*.58),false,4,32) ?? Math.round(H*.97));
 
   // 2 ─ Border color reference: MEDIAN over many points ringing all 4
   //     sides, inset well past the outer edge (not just a few px) so the
@@ -2827,19 +2836,28 @@ function runAuto() {
     // but may only push it INWARD if even a 1-px break in border colour can't be found first —
     // vintage cards have thin frame lines right where the yellow ends, and similar-yellow art
     // frames beyond them must not be mistaken for more border.
-    const ce=(lines,ax,a,b,k)=>{ const r3=colorEdge(get,lines,ax,a,b,bc,tolFor(k),false,3); if(!r3) return null;
+    const runLen=Math.max(3,Math.round(Math.min(cFW,cFH)*.006));
+    const ce=(lines,ax,a,b,k)=>{ const r3=colorEdge(get,lines,ax,a,b,bc,tolFor(k),false,runLen); if(!r3) return null;
       const r1=colorEdge(get,lines,ax,a,b,bc,tolFor(k),false,1); return {r3,r1}; };
-    const choose=(r0,c,outerPos,locked)=>{
+    // Band check for inward moves: between the gradient edge and the colour edge, how much
+    // of the band is border colour? Vintage cards print small copyright / illustrator text and
+    // set / 1st-Edition symbols inside the yellow border — those are specks in an otherwise
+    // yellow band (≥80% border colour), whereas a real frame line or artwork is not.
+    const bandFrac=(lines,ax,a,b,k)=>{ const lo=Math.min(a,b), hi=Math.max(a,b); let m=0,n=0;
+      for(const l of lines) for(let i=Math.round(lo);i<=Math.round(hi);i++){ const p=ax?get(i,l):get(l,i); n++; if(_cd(p,bc)<=tolFor(k)) m++; }
+      return n?m/n:0; };
+    const choose=(r0,c,outerPos,locked,lines,ax,k)=>{
       if(locked||!c||!agree(c.r3)) return r0;
       const d0=Math.abs(r0-outerPos), d3=Math.abs(c.r3.pos-outerPos);
       if(d3<=d0){ colorEdges++; return c.r3.pos; }                       // outward: trust colour
-      if(agree(c.r1)&&Math.abs(c.r1.pos-c.r3.pos)<=1.5){ colorEdges++; return c.r3.pos; } // clean run, no breaks
-      return r0;                                                          // a break exists: keep gradient
+      const dir=Math.sign(c.r3.pos-outerPos);
+      if(bandFrac(lines,ax,r0+dir,c.r3.pos-dir,k)>=.8){ colorEdges++; return c.r3.pos; } // band is still border
+      return r0;                                                          // real feature in between: keep gradient
     };
-    iL=choose(iL0,ce(LY,true, Math.round(oLx+2),Math.round(oLx+maxIn(cFW)),'L'),oLx,lineLocks.iL);
-    iR=choose(iR0,ce(LY,true, Math.round(oRx-2),Math.round(oRx-maxIn(cFW)),'R'),oRx,lineLocks.iR);
-    iT=choose(iT0,ce(LX,false,Math.round(oTy+2),Math.round(oTy+maxIn(cFH)),'T'),oTy,lineLocks.iT);
-    iB=choose(iB0,ce(LX,false,Math.round(oBy-2),Math.round(oBy-maxIn(cFH)),'B'),oBy,lineLocks.iB);
+    iL=choose(iL0,ce(LY,true, Math.round(oLx+2),Math.round(oLx+maxIn(cFW)),'L'),oLx,lineLocks.iL,LY,true,'L');
+    iR=choose(iR0,ce(LY,true, Math.round(oRx-2),Math.round(oRx-maxIn(cFW)),'R'),oRx,lineLocks.iR,LY,true,'R');
+    iT=choose(iT0,ce(LX,false,Math.round(oTy+2),Math.round(oTy+maxIn(cFH)),'T'),oTy,lineLocks.iT,LX,false,'T');
+    iB=choose(iB0,ce(LX,false,Math.round(oBy-2),Math.round(oBy-maxIn(cFH)),'B'),oBy,lineLocks.iB,LX,false,'B');
     // colour-run edges land on the first non-border pixel; inner line sits on the boundary
     if(iL!==iL0) iL-=.5; if(iR!==iR0) iR+=.5; if(iT!==iT0) iT-=.5; if(iB!==iB0) iB+=.5;
   }
@@ -2861,8 +2879,8 @@ function runAuto() {
   const g=.005*W, IW=img.width, IH=img.height, sx=IW/W, sy=IH/H;
   const keep={iLa:L.iLa||0,iRa:L.iRa||0,iTa:L.iTa||0,iBa:L.iBa||0}; if(L.flat) keep.flat=L.flat;
   L={
-    oL:cl(oLx,W*.001,W*.38)*sx, oR:cl(oRx,W*.62,W*.999)*sx,
-    oT:cl(oTy,H*.001,H*.38)*sy, oB:cl(oBy,H*.62,H*.999)*sy,
+    oL:cl(oLx,0,W*.38)*sx, oR:cl(oRx,W*.62,W)*sx,
+    oT:cl(oTy,0,H*.38)*sy, oB:cl(oBy,H*.62,H)*sy,
     iL:cl(iLf,oLx+g,W*.48)*sx, iR:cl(iRf,W*.52,oRx-g)*sx,
     iT:cl(iTf,oTy+g,H*.48)*sy, iB:cl(iBf,H*.52,oBy-g)*sy,
     ...keep
@@ -4554,6 +4572,7 @@ function learnedRef(side, setName){
 // where pixels stop matching it, instead of relying on the strongest gradient.
 const COLOR_SEEDS=[
   {label:'Vintage yellow border', side:'front', border:[236,200,58], spread:16},
+  {label:'Vintage yellow border (scanned)', side:'front', border:[186,152,64], spread:16},
   {label:'Modern silver border',  side:'front', border:[188,190,192], spread:18},
   {label:'Card back blue border', side:'back',  border:[36,58,122],  spread:16},
 ];
