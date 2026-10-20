@@ -2793,21 +2793,63 @@ function runAuto() {
   //     rarities) run noticeably thicker, so a narrow window can clip the
   //     true edge before the scan ever reaches it.
   const ref=getEffectiveRef(activeSide);
-  const cFW=oRx-oLx, cFH=oBy-oTy;
+  let cFW=oRx-oLx, cFH=oBy-oTy;
   const INNER_MIN_LEVEL=65; // absolute confidence floor — see scanEdge comment above
-  const iL=lineLocks.iL ? L.iL*wsx : (scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22,INNER_MIN_LEVEL)
+  const iL0=lineLocks.iL ? L.iL*wsx : (scanEdge(sY,bc,Math.round(oLx+cFW*ref.L*.15/100),Math.round(oLx+cFW*ref.L*3.2/100),true,3,22,INNER_MIN_LEVEL)
     ?? (oLx+cFW*ref.L/100));
-  const iR=lineLocks.iR ? L.iR*wsx : (scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22,INNER_MIN_LEVEL)
+  const iR0=lineLocks.iR ? L.iR*wsx : (scanEdge(sY,bc,Math.round(oRx-cFW*ref.R*.15/100),Math.round(oRx-cFW*ref.R*3.2/100),true,3,22,INNER_MIN_LEVEL)
     ?? (oRx-cFW*ref.R/100));
-  const iT=lineLocks.iT ? L.iT*wsy : (scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22,INNER_MIN_LEVEL)
+  const iT0=lineLocks.iT ? L.iT*wsy : (scanEdge(sX,bc,Math.round(oTy+cFH*ref.T*.15/100),Math.round(oTy+cFH*ref.T*3.2/100),false,3,22,INNER_MIN_LEVEL)
     ?? (oTy+cFH*ref.T/100));
-  const iB=lineLocks.iB ? L.iB*wsy : (scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
+  const iB0=lineLocks.iB ? L.iB*wsy : (scanEdge(sX,bc,Math.round(oBy-cFH*ref.B*.15/100),Math.round(oBy-cFH*ref.B*3.2/100),false,3,22,INNER_MIN_LEVEL)
     ?? (oBy-cFH*ref.B/100));
+  // Colour-guided edges: recognise this card's border colour from taught cards (or
+  // built-in vintage-yellow / silver / back-blue seeds) and locate the border by colour.
+  let iL=iL0,iR=iR0,iT=iT0,iB=iB0, colorEdges=0;
+  const prof=colorProfile(activeSide, bc);
+  if(prof){
+    // tolerance from both the learned variation and this photo's own border noise/lighting
+    const obsD=ringPx.map(p=>_cd(p,bc)).sort((a,b)=>a-b), obsSpread=obsD[Math.floor(obsD.length*.8)]||8;
+    const tol=Math.max(20,Math.min(70,Math.max(prof.spread,obsSpread)*3.2));
+    const LY=[], LX=[]; for(let f=.2;f<=.8001;f+=.04){ LY.push(oTy+cFH*f); LX.push(oLx+cFW*f); }
+    const maxIn=f=>Math.round(f*.16);
+    const agree=r=>r&&r.found>=.6&&r.iqr<=Math.max(2,cFW*.006);
+    const pick=(key,r0,res,locked)=>{ if(locked||!agree(res)) return r0; colorEdges++; return res.pos; };
+    // Per side, the switch point is the midpoint between the border colour and that side's
+    // artwork colour (sampled just past the expected inner edge) — a pixel belongs to whichever
+    // it is closer to, which is robust to texture, anti-aliasing and lighting differences.
+    const artAt=(xs,ys)=>_med3(xs.map((x,i)=>get(x,ys[i])));
+    const art={
+      L:artAt(LY.map(()=>oLx+cFW*ref.L*1.9/100),LY), R:artAt(LY.map(()=>oRx-cFW*ref.R*1.9/100),LY),
+      T:artAt(LX,LX.map(()=>oTy+cFH*ref.T*1.9/100)), B:artAt(LX,LX.map(()=>oBy-cFH*ref.B*1.9/100))};
+    const tolFor=k=>{ const c=_cd(bc,art[k]); return c>=tol*.9 ? Math.max(obsSpread*2.2, c*.5) : tol; };
+    // A colour edge may pull a line OUTWARD freely (the gradient overshot into the artwork),
+    // but may only push it INWARD if even a 1-px break in border colour can't be found first —
+    // vintage cards have thin frame lines right where the yellow ends, and similar-yellow art
+    // frames beyond them must not be mistaken for more border.
+    const ce=(lines,ax,a,b,k)=>{ const r3=colorEdge(get,lines,ax,a,b,bc,tolFor(k),false,3); if(!r3) return null;
+      const r1=colorEdge(get,lines,ax,a,b,bc,tolFor(k),false,1); return {r3,r1}; };
+    const choose=(r0,c,outerPos,locked)=>{
+      if(locked||!c||!agree(c.r3)) return r0;
+      const d0=Math.abs(r0-outerPos), d3=Math.abs(c.r3.pos-outerPos);
+      if(d3<=d0){ colorEdges++; return c.r3.pos; }                       // outward: trust colour
+      if(agree(c.r1)&&Math.abs(c.r1.pos-c.r3.pos)<=1.5){ colorEdges++; return c.r3.pos; } // clean run, no breaks
+      return r0;                                                          // a break exists: keep gradient
+    };
+    iL=choose(iL0,ce(LY,true, Math.round(oLx+2),Math.round(oLx+maxIn(cFW)),'L'),oLx,lineLocks.iL);
+    iR=choose(iR0,ce(LY,true, Math.round(oRx-2),Math.round(oRx-maxIn(cFW)),'R'),oRx,lineLocks.iR);
+    iT=choose(iT0,ce(LX,false,Math.round(oTy+2),Math.round(oTy+maxIn(cFH)),'T'),oTy,lineLocks.iT);
+    iB=choose(iB0,ce(LX,false,Math.round(oBy-2),Math.round(oBy-maxIn(cFH)),'B'),oBy,lineLocks.iB);
+    // colour-run edges land on the first non-border pixel; inner line sits on the boundary
+    if(iL!==iL0) iL-=.5; if(iR!==iR0) iR+=.5; if(iT!==iT0) iT-=.5; if(iB!==iB0) iB+=.5;
+  }
+  window._lastColorMatch=prof?{label:prof.label,n:prof.n,edges:colorEdges}:null;
 
   // Learned set border totals: rebuild an edge auto-detect clearly misread
   // (left+right and top+bottom totals are fixed by the print run; centering only shifts them)
   let iLf=iL,iRf=iR,iTf=iT,iBf=iB;
-  const tref=learnedRef(activeSide, document.getElementById('fSet').value);
+  let tref=learnedRef(activeSide, document.getElementById('fSet').value);
+  if(tref.scope!=='set'&&prof&&prof.ref&&prof.ref.n>=2) tref=prof.ref;
   const inn={L:(iL-oLx)/cFW*100, R:(oRx-iR)/cFW*100, T:(iT-oTy)/cFH*100, B:(oBy-iB)/cFH*100}, inn0={...inn};
   const fixedN=applyLearnedBorders(null,inn,tref);
   if(fixedN){
@@ -2827,7 +2869,10 @@ function runAuto() {
   };
   lastAutoL={...L};
   lastAuto[activeSide]=bordersPct(L);
-  if(fixedN) teachStatus(`Auto-detect corrected ${fixedN} axis${fixedN>1?'es':''} using learned ${tref.scope==='set'?'set':activeSide} borders (${tref.n} sample${tref.n===1?'':'s'})`);
+  { const msg=[];
+    if(prof&&colorEdges) msg.push(`Recognised ${prof.label}${prof.n?` (${prof.n} taught card${prof.n>1?'s':''})`:''} · ${colorEdges} edge${colorEdges>1?'s':''} found by colour`);
+    if(fixedN) msg.push(`corrected ${fixedN} axis${fixedN>1?'es':''} from learned ${tref.scope==='set'?'set':tref.scope==='colour'?'same-border':activeSide} sizes`);
+    if(msg.length) teachStatus(msg.join(' · ')); }
   if(_pendingIdentifyImg && activeSide==='front'){
     const im=_pendingIdentifyImg; _pendingIdentifyImg=null;
     autoIdentifyCard(im);
@@ -4498,6 +4543,94 @@ function learnedRef(side, setName){
   };
 }
 
+// ════════════════════════════════════════════
+//  BORDER COLOUR LEARNING — Teach also learns what each card's border looks like
+// ════════════════════════════════════════════
+// Card borders are printed in a small set of colours per era (vintage WOTC/e-Card
+// yellow, modern silver/grey, the blue back). Teach samples the real border colour,
+// how much it varies (foil, print noise, lighting) and how it contrasts with the
+// background and the artwork. Auto-Detect then recognises the border by colour and
+// finds the outer edge (background → border) and inner edge (border → artwork)
+// where pixels stop matching it, instead of relying on the strongest gradient.
+const COLOR_SEEDS=[
+  {label:'Vintage yellow border', side:'front', border:[236,200,58], spread:16},
+  {label:'Modern silver border',  side:'front', border:[188,190,192], spread:18},
+  {label:'Card back blue border', side:'back',  border:[36,58,122],  spread:16},
+];
+const _cd=(a,b)=>Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2);
+const _med3=ps=>[0,1,2].map(c=>{const v=ps.map(p=>p[c]).sort((x,y)=>x-y);return v[v.length>>1];});
+// pixel reader for a side's image as displayed (straighten angle applied), downscaled
+function _sideReader(simg, angle, maxDim){
+  const s=Math.min(1,(maxDim||900)/Math.max(simg.width,simg.height));
+  const W=Math.max(2,Math.round(simg.width*s)), H=Math.max(2,Math.round(simg.height*s));
+  const c=document.createElement('canvas'); c.width=W; c.height=H; const x=c.getContext('2d');
+  if(angle){ x.translate(W/2,H/2); x.rotate(angle*Math.PI/180); x.translate(-W/2,-H/2); }
+  x.drawImage(simg,0,0,W,H);
+  const D=x.getImageData(0,0,W,H).data;
+  return {s,W,H,get:(px,py)=>{px=Math.max(0,Math.min(W-1,Math.round(px)));py=Math.max(0,Math.min(H-1,Math.round(py)));const i=(py*W+px)*4;return[D[i],D[i+1],D[i+2]];}};
+}
+// sample border / background / artwork colours from a side whose lines are confirmed
+function sampleBorderColors(sd){
+  try{
+    const R=_sideReader(sd.img, sd.imgAngle||0, 900), s=R.s, Lw={};
+    for(const k of ['oL','oR','oT','oB','iL','iR','iT','iB']) Lw[k]=sd.L[k]*s;
+    const bw={L:Lw.iL-Lw.oL, R:Lw.oR-Lw.iR, T:Lw.iT-Lw.oT, B:Lw.oB-Lw.iB};
+    if(Object.values(bw).some(v=>!(v>2))) return null;
+    const per={}, all=[], art=[], bg=[];
+    const along=(a0,a1,f)=>a0+(a1-a0)*f;
+    const take=(side,fn)=>{ const ps=[]; for(let f=.18;f<=.82;f+=.04) for(let t=.3;t<=.7;t+=.2) ps.push(fn(f,t)); per[side]=_med3(ps); all.push(...ps); };
+    take('L',(f,t)=>R.get(Lw.oL+bw.L*t, along(Lw.iT,Lw.iB,f)));
+    take('R',(f,t)=>R.get(Lw.oR-bw.R*t, along(Lw.iT,Lw.iB,f)));
+    take('T',(f,t)=>R.get(along(Lw.iL,Lw.iR,f), Lw.oT+bw.T*t));
+    take('B',(f,t)=>R.get(along(Lw.iL,Lw.iR,f), Lw.oB-bw.B*t));
+    const border=_med3(all);
+    const dists=all.map(p=>_cd(p,border)).sort((a,b)=>a-b);
+    const spread=dists[Math.floor(dists.length*.8)]||8;           // 80th percentile distance
+    for(let f=.2;f<=.8;f+=.1){ // artwork just inside inner edge, background just outside outer edge
+      art.push(R.get(Lw.iL+bw.L*.6, along(Lw.iT,Lw.iB,f)), R.get(Lw.iR-bw.R*.6, along(Lw.iT,Lw.iB,f)));
+      if(Lw.oL>bw.L*.6) bg.push(R.get(Lw.oL-bw.L*.4, along(Lw.oT,Lw.oB,f)));
+      if(R.W-Lw.oR>bw.R*.6) bg.push(R.get(Lw.oR+bw.R*.4, along(Lw.oT,Lw.oB,f)));
+    }
+    const artC=_med3(art), bgC=bg.length?_med3(bg):null;
+    return {border, spread:+spread.toFixed(1), per_side:per, artwork:artC, background:bgC,
+            contrast_art:+_cd(border,artC).toFixed(1), contrast_bg:bgC?+_cd(border,bgC).toFixed(1):null};
+  }catch(e){ return null; }
+}
+// find the learned profile matching the border colour seen on this image
+function colorProfile(side, observed){
+  const samples=teachLoad().samples.filter(s=>s.side===side&&s.color&&s.color.border);
+  const near=samples.map(s=>({s,d:_cd(s.color.border,observed)})).filter(x=>x.d<60).sort((a,b)=>a.d-b.d).slice(0,25);
+  if(near.length){
+    const mean=[0,1,2].map(c=>near.reduce((a,x)=>a+x.s.color.border[c],0)/near.length);
+    const spread=Math.max(8, near.reduce((a,x)=>a+x.s.color.spread,0)/near.length);
+    const sets={}; near.forEach(x=>{ if(x.s.set) sets[x.s.set]=(sets[x.s.set]||0)+1; });
+    const top=Object.entries(sets).sort((a,b)=>b[1]-a[1])[0];
+    const st=k=>{ const v=near.map(x=>x.s[k]); const m=v.reduce((a,b)=>a+b,0)/v.length; return m; };
+    const tot=f=>{ const v=near.map(x=>f(x.s)), m=v.reduce((a,b)=>a+b,0)/v.length;
+      return {mean:m, sd:v.length>1?Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/(v.length-1)):null}; };
+    return {label:(top?top[0]+'-style ':('taught '+side+' '))+'border', n:near.length, border:mean, spread, taught:true,
+            ref:{L:st('L'),R:st('R'),T:st('T'),B:st('B'),LR:tot(s=>s.L+s.R),TB:tot(s=>s.T+s.B),n:near.length,scope:'colour'}};
+  }
+  const seed=COLOR_SEEDS.filter(x=>x.side===side).map(x=>({x,d:_cd(x.border,observed)})).filter(o=>o.d<55).sort((a,b)=>a.d-b.d)[0];
+  return seed?{label:seed.x.label, n:0, border:seed.x.border, spread:seed.x.spread, taught:false, ref:null}:null;
+}
+// colour-run edge finder: along each scanline walk from i0 toward i1 and return where
+// pixels switch from matching (want=true) / not matching (want=false) the border colour
+function colorEdge(get, lines, axisIsX, i0, i1, color, tol, want, confirm){
+  const dir=i1>=i0?1:-1, n=Math.abs(i1-i0), hits=[];
+  for(const l of lines){
+    let run=0, start=null;
+    for(let k=0;k<=n;k++){
+      const i=i0+k*dir, p=axisIsX?get(i,l):get(l,i), m=_cd(p,color)<=tol;
+      if(m===want){ if(!run) start=i; if(++run>=confirm){ hits.push(start); break; } } else run=0;
+    }
+  }
+  if(hits.length<lines.length*.6) return null;
+  hits.sort((a,b)=>a-b);
+  const q1=hits[Math.floor(hits.length*.25)], q3=hits[Math.floor(hits.length*.75)], med=hits[hits.length>>1];
+  return {pos:med, iqr:q3-q1, found:hits.length/lines.length};
+}
+
 function teachTool(){
   if(!loaded) return;
   flushActiveSide();
@@ -4517,6 +4650,7 @@ function teachTool(){
       lr_ratio:`${c.lP}/${c.rP}`, tb_ratio:`${c.tP}/${c.bP}`,
       grade:String((gNumT(c.lrG.g)<=gNumT(c.tbG.g)?c.lrG:c.tbG).g),
       auto: lastAuto[side] ? {L:r3(lastAuto[side].L),R:r3(lastAuto[side].R),T:r3(lastAuto[side].T),B:r3(lastAuto[side].B)} : null,
+      color: sampleBorderColors(sd),
       flatten: sd.L.flat ? {auto_detected:sd.L.flat.auto_detected, manually_adjusted:sd.L.flat.manually_adjusted, max_manual_adjust_px:sd.L.flat.max_manual_adjust_px} : null,
       taught_at:new Date().toISOString() };
     const i=d.samples.findIndex(s=>s.key===key);
@@ -4525,7 +4659,8 @@ function teachTool(){
   });
   const ok=teachSave(d);
   if(!taught){ teachStatus('Nothing taught — set the inner and outer lines first', true); return; }
-  teachStatus(`Learned ${taught} side${taught>1?'s':''}`+(name||set?'':' · add card name/set for set-specific learning')+(ok?'':' · browser storage blocked: export to keep'), !ok);
+  const cs=d.samples.filter(s=>s.color).length;
+  teachStatus(`Learned ${taught} side${taught>1?'s':''} · border sizes + border colour`+(name||set?'':' · add card name/set for set-specific learning')+(ok?'':' · browser storage blocked: export to keep'), !ok);
   updateTeachStats();
 }
 const gNumT=g=>g==='10P'?10.5:Number(g);
@@ -4543,7 +4678,8 @@ function updateTeachStats(){
   const inSet=set?s.filter(x=>setKey(x.set)===setKey(set)).length:0;
   // auto-detect accuracy from samples where we know what auto-detect said
   const errs=[]; s.forEach(x=>{ if(x.auto) ['L','R','T','B'].forEach(k=>errs.push(Math.abs(x.auto[k]-x[k]))); });
-  const acc=errs.length?` · auto-detect avg error ${(errs.reduce((a,v)=>a+v,0)/errs.length).toFixed(2)}%`:'';
+  const cols=s.filter(x=>x.color).length;
+  const acc=(cols?` · <b>${cols}</b> border colour${cols>1?'s':''} learned`:'')+(errs.length?` · auto-detect avg error ${(errs.reduce((a,v)=>a+v,0)/errs.length).toFixed(2)}%`:'');
   el.innerHTML=s.length
     ? `Learned from <b>${s.length}</b> side${s.length>1?'s':''} (${f} front · ${b} back)${set?` · this set: <b>${inSet}</b>`:''}${acc}`
     : 'Not trained yet — Teach after confirming the lines on a card';
