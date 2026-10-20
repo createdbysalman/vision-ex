@@ -301,6 +301,14 @@ body{
 .omr-val{font-family:var(--font-dp);font-size:13px;letter-spacing:.03em;}
 .price-box{display:none;padding:9px 13px 11px;border-top:1px solid var(--borderL);}
 .price-box.show{display:block;}
+.price-tiers{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--borderL);border:1px solid var(--borderL);margin-top:6px;}
+.price-tier{background:var(--white);padding:6px 7px;}
+.price-tier.hi{background:rgba(255,205,0,.16);}
+.price-tier-l{font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--label);}
+.price-tier-v{font-family:var(--font-dp);font-size:17px;letter-spacing:.02em;color:var(--text);line-height:1.2;}
+.price-tier-v a{font-family:var(--font-cd);font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--text);text-decoration:underline;}
+.price-tier-s{font-family:var(--font-cd);font-size:8px;color:var(--label2);letter-spacing:.04em;}
+.price-key{display:block;margin-top:5px;font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--label);cursor:pointer;text-decoration:underline;}
 .price-head{display:flex;justify-content:space-between;align-items:baseline;}
 .price-lbl{font-family:var(--font-cd);font-size:8px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--label);}
 .price-src{font-family:var(--font-cd);font-size:8px;letter-spacing:.08em;color:var(--label2);}
@@ -1097,8 +1105,10 @@ body{
     <div class="price-box" id="priceBox">
       <div class="price-head"><span class="price-lbl">Market Price</span><span class="price-src" id="priceSrc"></span></div>
       <div class="price-main" id="priceMain">—</div>
+      <div class="price-tiers" id="priceTiers"></div>
       <div class="price-sub" id="priceSub"></div>
       <a class="price-link" id="priceLink" target="_blank" rel="noopener">Sold comps ↗</a>
+      <a class="price-key" id="priceKeyLink" onclick="setPriceChartingKey()">PSA prices: add PriceCharting key</a>
     </div>
   </div>
 
@@ -5035,11 +5045,63 @@ function onVariantChange(silent){
   const o=(sel._opts||[]).find(x=>x.key===sel.value)||null;
   cust.style.display=o&&o.custom?'':'none';
   selectedVariant=o?{key:o.key,label:o.custom?(cust.value.trim()||'Stamped'):o.label,priceKey:o.priceKey,stamped:!!o.stamped,custom:!!o.custom,customText:o.custom?cust.value.trim():''}:null;
+  const sig=selectedVariant?selectedVariant.key+'|'+selectedVariant.customText+'|'+selectedVariant.priceKey:'';
+  if(sig===onVariantChange._last) return; onVariantChange._last=sig;
   _priceVer++; _priceKey='';
   if(!silent&&typeof updateUI==='function'){ try{ updateUI(); }catch(e){} }
   try{ updatePriceUI(window._lastOv); }catch(e){}
 }
 const _tcgSearchUrl=(card,extra)=>'https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q='+encodeURIComponent([card.name,card.number&&card.set&&card.set.printedTotal?card.number+'/'+card.set.printedTotal:card.number,card.set&&card.set.name,extra].filter(Boolean).join(' '));
+
+// ── USD price sources ──
+// Ungraded: TCGplayer USD (from TCGdex, else pokemontcg.io which carries TCGplayer prices for far more cards).
+// PSA 10 / PSA 9: PriceCharting (graded sold-price averages). Its API needs a personal key — stored only in this browser.
+const PC_KEY='vex-pricecharting-key';
+const _pcKey=()=>{ try{ return localStorage.getItem(PC_KEY)||''; }catch(e){ return ''; } };
+function setPriceChartingKey(){
+  const cur=_pcKey();
+  const k=prompt('PriceCharting API key (pricecharting.com → Subscriptions → API). Used only for PSA 10 / PSA 9 prices; stays in this browser.\nLeave empty to remove.', cur);
+  if(k===null) return;
+  try{ k.trim()?localStorage.setItem(PC_KEY,k.trim()):localStorage.removeItem(PC_KEY); }catch(e){}
+  _usdCache.clear(); _priceKey=''; updatePriceUI(window._lastOv);
+}
+const _usdCache=new Map();
+async function _ptcgUSD(card){
+  const num=String(card.number||'').replace(/^0+(?=\d)/,'');
+  const qs=[`name:"${String(card.name).replace(/"/g,'')}" number:${num} set.name:"${String(card.set&&card.set.name||'').replace(/"/g,'')}"`,
+            `name:"${String(card.name).replace(/"/g,'').replace(/\s*δ.*$/,'')}*" number:${num}`];
+  for(const q of qs){
+    const j=await _apiFetch('https://api.pokemontcg.io/v2/cards?pageSize=10&select=id,name,number,set,tcgplayer&q='+encodeURIComponent(q),2);
+    const list=(j&&j.data)||[];
+    const tot=String(card.set&&card.set.printedTotal||'');
+    const hit=list.find(c=>c.tcgplayer&&c.tcgplayer.prices&&(!tot||String(c.set&&c.set.printedTotal)===tot))||list.find(c=>c.tcgplayer&&c.tcgplayer.prices);
+    if(hit){ const p={}; Object.entries(hit.tcgplayer.prices).forEach(([k,v])=>{ if(v&&(v.market!=null||v.mid!=null)) p[k]={low:v.low,mid:v.mid,high:v.high,market:v.market}; });
+      if(Object.keys(p).length) return {updatedAt:hit.tcgplayer.updatedAt||'',prices:p,url:hit.tcgplayer.url||''}; }
+  }
+  return null;
+}
+async function _pcGraded(card, variant){
+  const key=_pcKey(); if(!key) return null;
+  const vq=variant&&variant.stamped?(variant.customText||'stamped'):(variant&&/reverse|1st/i.test(variant.label)?variant.label.replace(/ ·.*$/,''):'');
+  const q=[card.name.replace(/\s*δ/,' delta'),card.number&&card.set&&card.set.printedTotal?String(+card.number||card.number):card.number,card.set&&card.set.name,vq].filter(Boolean).join(' ');
+  const j=await _apiFetch('https://www.pricecharting.com/api/product?t='+encodeURIComponent(key)+'&q='+encodeURIComponent(q),2);
+  if(!j||j.status==='error') return {error:(j&&j['error-message'])||'PriceCharting lookup failed'};
+  const c=v=>typeof v==='number'&&v>0?v/100:null;   // PriceCharting returns pennies
+  return {psa10:c(j['manual-only-price']), psa9:c(j['graded-price']), ungraded:c(j['loose-price']), product:j['product-name']||'', id:j.id||''};
+}
+async function _loadUSD(card, variant){
+  const k=card.id+'|'+(variant?variant.key+(variant.customText||''):'')+'|'+(_pcKey()?'k':'');
+  if(_usdCache.has(k)) return _usdCache.get(k);
+  const pr=(async()=>{
+    let tcg=card.tcgplayer&&Object.keys(card.tcgplayer.prices||{}).length?card.tcgplayer:null;
+    if(!tcg){ try{ tcg=await _ptcgUSD(card); }catch(e){}
+      if(tcg&&!card.tcgplayer){ card.tcgplayer=tcg;
+        if(card===currentCard){ const keep=selectedVariant; populateVariants(card, keep); } } }
+    let pc=null; try{ pc=await _pcGraded(card,variant); }catch(e){ pc={error:'PriceCharting unreachable'}; }
+    return {tcg,pc};
+  })();
+  _usdCache.set(k,pr); return pr;
+}
 
 let _priceKey = '';
 function updatePriceUI(ov) {
@@ -5058,27 +5120,35 @@ function updatePriceUI(ov) {
     sub.textContent = ''; src.textContent = ''; link.style.display = 'none';
     return;
   }
-  // English-market prices only (TCGplayer, USD). Cardmarket (EUR, EU market) is not shown.
-  const variants = _tcgVariants(currentCard);
-  const sv = selectedVariant;
-  const v = sv && sv.priceKey ? variants.find(x => x.key === sv.priceKey) : (sv ? null : variants[0]);
+  main.className = 'price-main muted'; main.textContent = 'Loading USD prices…';
+  document.getElementById('priceTiers').innerHTML=''; sub.textContent=''; src.textContent='';
+  const ver=_priceVer, card=currentCard, sv=selectedVariant;
+  _loadUSD(card, sv).then(({tcg,pc})=>{
+    if(ver!==_priceVer||card!==currentCard) return;
+    const variants=tcg?_tcgVariants({tcgplayer:tcg}):[];
+    const v = sv && sv.priceKey ? variants.find(x=>x.key===sv.priceKey) : (sv && sv.stamped ? null : variants[0]);
+    const mk=x=>x?(x.market!=null?x.market:x.mid):null;
+    const ung = sv&&sv.stamped ? (pc&&!pc.error?pc.ungraded:null) : (mk(v)!=null?mk(v):(pc&&!pc.error?pc.ungraded:null));
+    const gl = grade==='10P'?'10':grade;
+    const comps = g => 'https://www.ebay.com/sch/i.html?_nkw='+encodeURIComponent([card.name,card.number,card.set&&card.set.name,sv&&sv.stamped?(sv.customText||'stamped'):'','PSA '+g].filter(Boolean).join(' '))+'&LH_Sold=1&LH_Complete=1';
+    const cell=(lbl,val,g,subtxt)=>`<div class="price-tier${g&&gl===g?' hi':''}"><div class="price-tier-l">${lbl}</div><div class="price-tier-v">${val!=null?_usd(val):(g?`<a href="${comps(g)}" target="_blank" rel="noopener">Sold comps ↗</a>`:'—')}</div>${subtxt?`<div class="price-tier-s">${subtxt}</div>`:''}</div>`;
+    const pcOk=pc&&!pc.error;
+    document.getElementById('priceTiers').innerHTML=
+      cell('PSA 10', pcOk?pc.psa10:null, '10', pcOk&&pc.psa10!=null?'PriceCharting':'') +
+      cell('PSA 9',  pcOk?pc.psa9:null,  '9',  pcOk&&pc.psa9!=null?'PriceCharting':'') +
+      cell('Ungraded', ung, '', ung!=null?(sv&&sv.stamped?'PriceCharting':(v?esc(v.label):'')):'');
+    const best = gl==='10'&&pcOk&&pc.psa10!=null ? ['PSA 10 est.',pc.psa10] : gl==='9'&&pcOk&&pc.psa9!=null ? ['PSA 9 est.',pc.psa9] : (ung!=null?['Ungraded',ung]:null);
+    if(best){ main.className='price-main'; main.textContent=_usd(best[1]); }
+    else { main.className='price-main muted'; main.textContent=sv&&sv.stamped?'No USD price for '+sv.label:'No USD price found for this card'; }
+    const lines=[];
+    if(best) lines.push(best[0]+' · USD'+(sv?' · '+esc(sv.label):''));
+    if(!best||(sv&&sv.stamped&&ung==null)) lines.push('<a class="price-link" href="'+_tcgSearchUrl(card, sv&&sv.stamped?(sv.customText||'stamped'):'')+'" target="_blank" rel="noopener">Find this printing on TCGplayer ↗</a>');
+    if(pc&&pc.error) lines.push('PriceCharting: '+esc(pc.error));
+    sub.innerHTML=lines.join('<br>');
+    src.textContent=[tcg?'TCGplayer'+(tcg.updatedAt?' '+tcg.updatedAt:''):'', pcOk?'PriceCharting':''].filter(Boolean).join(' · ')||'USD';
+    document.getElementById('priceKeyLink').textContent=_pcKey()?'PriceCharting key ✓ · change':'PSA 10 / 9 prices: add PriceCharting key';
+  });
   const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  if (v) {
-    main.className = 'price-main';
-    main.textContent = _usd(v.market != null ? v.market : v.mid);
-    const lines = ['Raw · ' + esc(v.label) + ' (English)' + (v.low != null ? ' · low ' + _usd(v.low) : '') + (v.mid != null ? ' · mid ' + _usd(v.mid) : '')];
-    const others = variants.filter(x => x !== v);
-    if (others.length) lines.push('Other printings: ' + others.slice(0, 4).map(x => esc(x.label) + ' ' + _usd(x.market != null ? x.market : x.mid)).join(' · '));
-    sub.innerHTML = lines.join('<br>');
-    src.textContent = currentCard.tcgplayer && currentCard.tcgplayer.updatedAt ? 'TCGplayer (USD) · ' + currentCard.tcgplayer.updatedAt : 'TCGplayer (USD)';
-  } else {
-    main.className = 'price-main muted';
-    main.textContent = sv ? 'No English price for ' + sv.label : 'No English market price for this card';
-    const u = _tcgSearchUrl(currentCard, sv && sv.stamped ? (sv.customText || 'stamped') : (sv ? sv.label : ''));
-    const base = variants[0] ? 'Unstamped ' + esc(variants[0].label) + ' ' + _usd(variants[0].market != null ? variants[0].market : variants[0].mid) + '<br>' : '';
-    sub.innerHTML = base + '<a class="price-link" href="' + u + '" target="_blank" rel="noopener">Find this printing on TCGplayer ↗</a>';
-    src.textContent = 'TCGplayer (USD)';
-  }
   // Graded value isn't in any free feed — link straight to sold comps for the estimated grade.
   const gl = grade === '10P' ? '10' : grade;
   if (gl) {
